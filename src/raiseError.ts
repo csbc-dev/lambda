@@ -1,6 +1,6 @@
-import type { LambdaError } from "./types.js";
+import type { LambdaError, LambdaErrorCode } from "./types.js";
 
-export function toLambdaError(error: unknown, code = "LAMBDA_ERROR"): LambdaError {
+export function toLambdaError(error: unknown, code: LambdaErrorCode = "LAMBDA_ERROR"): LambdaError {
   if (typeof error === "object" && error !== null && "code" in error && "message" in error) {
     return error as LambdaError;
   }
@@ -20,7 +20,7 @@ export function toLambdaError(error: unknown, code = "LAMBDA_ERROR"): LambdaErro
   };
 }
 
-export function raiseError(target: EventTarget, eventName: string, error: unknown, code?: string): LambdaError {
+export function raiseError(target: EventTarget, eventName: string, error: unknown, code?: LambdaErrorCode): LambdaError {
   const normalized = toLambdaError(error, code);
   target.dispatchEvent(new CustomEvent(eventName, { detail: normalized }));
   return normalized;

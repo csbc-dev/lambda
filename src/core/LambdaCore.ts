@@ -131,6 +131,10 @@ export class LambdaCore extends EventTarget {
         throw new Error("No Lambda provider configured");
       }
 
+      if (!this.#functionName) {
+        throw new Error("functionName is required before invoke()");
+      }
+
       const response = await this.#provider.invoke({
         functionName: this.#functionName,
         payload: this.#payload,
@@ -163,7 +167,14 @@ export class LambdaCore extends EventTarget {
 
       return response;
     } catch (error) {
-      const normalized = toLambdaError(error, this.#aborted ? "LAMBDA_ABORTED" : "LAMBDA_INVOKE_FAILED");
+      const normalized = toLambdaError(
+        error,
+        this.#aborted
+          ? "LAMBDA_ABORTED"
+          : this.#provider
+            ? "LAMBDA_INVOKE_FAILED"
+            : "LAMBDA_CONFIG_ERROR",
+      );
       this.#setError(normalized);
       if (this.#mode === "stream") {
         this.#setStreamError(normalized);

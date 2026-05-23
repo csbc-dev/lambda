@@ -4,6 +4,7 @@ export interface LambdaError {
     message: string;
     cause?: unknown;
 }
+export type LambdaErrorCode = "LAMBDA_ERROR" | "LAMBDA_ABORTED" | "LAMBDA_CONFIG_ERROR" | "LAMBDA_INPUT_ERROR" | "LAMBDA_PARENT_REQUIRED" | "LAMBDA_POLICY_DENIED" | "LAMBDA_PROVIDER_ERROR" | "LAMBDA_INVOKE_FAILED";
 export interface LambdaInvokeOptions {
     functionName: string;
     payload: unknown;
@@ -22,6 +23,19 @@ export interface LambdaInvokeResponse {
     chunks?: string[];
     text?: string;
     firstByteLatency?: number | null;
+}
+export type LambdaInvoker = (options: LambdaInvokeOptions) => Promise<LambdaInvokeResponse>;
+export interface LambdaPinPolicy {
+    pinnedFunctionName?: string;
+    pinnedQualifier?: string | null;
+    allowFunctionNameOverride?: boolean;
+    allowQualifierOverride?: boolean;
+    allowedFunctionNames?: readonly string[];
+    allowedQualifiers?: readonly string[];
+}
+export interface AwsLambdaProviderOptions {
+    invoker: LambdaInvoker;
+    policy?: LambdaPinPolicy;
 }
 export interface ILambdaProvider {
     invoke(options: LambdaInvokeOptions): Promise<LambdaInvokeResponse>;

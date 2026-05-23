@@ -114,6 +114,9 @@ export class LambdaCore extends EventTarget {
             if (!__classPrivateFieldGet(this, _LambdaCore_provider, "f")) {
                 throw new Error("No Lambda provider configured");
             }
+            if (!__classPrivateFieldGet(this, _LambdaCore_functionName, "f")) {
+                throw new Error("functionName is required before invoke()");
+            }
             const response = await __classPrivateFieldGet(this, _LambdaCore_provider, "f").invoke({
                 functionName: __classPrivateFieldGet(this, _LambdaCore_functionName, "f"),
                 payload: __classPrivateFieldGet(this, _LambdaCore_payload, "f"),
@@ -143,7 +146,11 @@ export class LambdaCore extends EventTarget {
             return response;
         }
         catch (error) {
-            const normalized = toLambdaError(error, __classPrivateFieldGet(this, _LambdaCore_aborted, "f") ? "LAMBDA_ABORTED" : "LAMBDA_INVOKE_FAILED");
+            const normalized = toLambdaError(error, __classPrivateFieldGet(this, _LambdaCore_aborted, "f")
+                ? "LAMBDA_ABORTED"
+                : __classPrivateFieldGet(this, _LambdaCore_provider, "f")
+                    ? "LAMBDA_INVOKE_FAILED"
+                    : "LAMBDA_CONFIG_ERROR");
             __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setError).call(this, normalized);
             if (__classPrivateFieldGet(this, _LambdaCore_mode, "f") === "stream") {
                 __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setStreamError).call(this, normalized);

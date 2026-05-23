@@ -1,4 +1,4 @@
 export { LambdaCore } from "../core/LambdaCore.js";
 export { AwsLambdaProvider } from "../providers/AwsLambdaProvider.js";
-export type { ILambdaProvider, LambdaError, LambdaInvokeOptions, LambdaInvokeResponse, LambdaMode, } from "../types.js";
+export type { AwsLambdaProviderOptions, ILambdaProvider, LambdaError, LambdaErrorCode, LambdaInvoker, LambdaInvokeOptions, LambdaInvokeResponse, LambdaMode, LambdaPinPolicy, } from "../types.js";
 //# sourceMappingURL=index.d.ts.map

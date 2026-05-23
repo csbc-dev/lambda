@@ -6,6 +6,7 @@ export { LambdaStream } from "./components/LambdaStream.js";
 export { AwsLambdaProvider } from "./providers/AwsLambdaProvider.js";
 
 export type {
+  AwsLambdaProviderOptions,
   IConfig,
   IRemoteConfig,
   ITagNames,
@@ -14,9 +15,12 @@ export type {
   IWritableTagNames,
   ILambdaProvider,
   LambdaError,
+  LambdaErrorCode,
+  LambdaInvoker,
   LambdaInvokeOptions,
   LambdaInvokeResponse,
   LambdaInvokeValues,
   LambdaMode,
+  LambdaPinPolicy,
   LambdaStreamValues,
 } from "./types.js";

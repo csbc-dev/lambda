@@ -4,5 +4,5 @@ export { LambdaCore } from "./core/LambdaCore.js";
 export { LambdaInvoke } from "./components/LambdaInvoke.js";
 export { LambdaStream } from "./components/LambdaStream.js";
 export { AwsLambdaProvider } from "./providers/AwsLambdaProvider.js";
-export type { IConfig, IRemoteConfig, ITagNames, IWritableConfig, IWritableRemoteConfig, IWritableTagNames, ILambdaProvider, LambdaError, LambdaInvokeOptions, LambdaInvokeResponse, LambdaInvokeValues, LambdaMode, LambdaStreamValues, } from "./types.js";
+export type { AwsLambdaProviderOptions, IConfig, IRemoteConfig, ITagNames, IWritableConfig, IWritableRemoteConfig, IWritableTagNames, ILambdaProvider, LambdaError, LambdaErrorCode, LambdaInvoker, LambdaInvokeOptions, LambdaInvokeResponse, LambdaInvokeValues, LambdaMode, LambdaPinPolicy, LambdaStreamValues, } from "./types.js";
 //# sourceMappingURL=index.d.ts.map
