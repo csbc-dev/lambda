@@ -53,7 +53,7 @@ _LambdaStream_parent = new WeakMap(), _LambdaStream_streaming = new WeakMap(), _
     __classPrivateFieldGet(this, _LambdaStream_instances, "m", _LambdaStream_detachFromParent).call(this);
     const tagName = getConfig().tagNames.lambdaInvoke;
     const candidate = this.closest(tagName);
-    if (!(candidate instanceof HTMLElement)) {
+    if (!(candidate instanceof HTMLElement) || !isLambdaInvokeHost(candidate)) {
         __classPrivateFieldGet(this, _LambdaStream_instances, "m", _LambdaStream_setStreamError).call(this, raiseError(this, "lambda-stream:error", new Error("lambda-stream requires a parent lambda-invoke"), "LAMBDA_PARENT_REQUIRED"));
         return;
     }
@@ -140,5 +140,10 @@ LambdaStream.wcBindable = {
 };
 function stringArraysEqual(left, right) {
     return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+function isLambdaInvokeHost(value) {
+    return typeof value.invoke === "function"
+        && Array.isArray(value.chunks)
+        && typeof value.text === "string";
 }
 //# sourceMappingURL=LambdaStream.js.map

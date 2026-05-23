@@ -102,6 +102,9 @@ _AwsLambdaProvider_invoker = new WeakMap(), _AwsLambdaProvider_streamInvoker = n
         abortSignal: options.signal,
     });
     for await (const event of response.EventStream ?? []) {
+        if (options.signal?.aborted) {
+            break;
+        }
         if (event.PayloadChunk) {
             const chunk = textDecoder.decode(event.PayloadChunk.Payload ?? new Uint8Array());
             if (firstByteLatency === null) {

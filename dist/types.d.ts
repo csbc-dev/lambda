@@ -1,10 +1,10 @@
 export type LambdaMode = "buffered" | "stream";
 export interface LambdaError {
-    code: string;
+    code: LambdaErrorCode;
     message: string;
     cause?: unknown;
 }
-export type LambdaErrorCode = "LAMBDA_ERROR" | "LAMBDA_ABORTED" | "LAMBDA_CONFIG_ERROR" | "LAMBDA_INPUT_ERROR" | "LAMBDA_PARENT_REQUIRED" | "LAMBDA_POLICY_DENIED" | "LAMBDA_PROVIDER_ERROR" | "LAMBDA_FUNCTION_ERROR" | "LAMBDA_INVOKE_FAILED";
+export type LambdaErrorCode = "LAMBDA_ERROR" | "LAMBDA_ABORTED" | "LAMBDA_AUTH_ERROR" | "LAMBDA_CONFIG_ERROR" | "LAMBDA_INPUT_ERROR" | "LAMBDA_PARENT_REQUIRED" | "LAMBDA_POLICY_DENIED" | "LAMBDA_PROVIDER_ERROR" | "LAMBDA_FUNCTION_ERROR" | "LAMBDA_INVOKE_FAILED";
 export interface LambdaInvokeOptions {
     functionName: string;
     payload: unknown;
