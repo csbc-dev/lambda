@@ -1,4 +1,4 @@
-import type { ILambdaProvider, LambdaError, LambdaInvokeOptions, LambdaInvokeResponse, LambdaMode } from "../types.js";
+import type { ILambdaProvider, LambdaError, LambdaInvokeOptions, LambdaInvokeResponse, LambdaMode, LambdaPinPolicy } from "../types.js";
 export declare class LambdaCore extends EventTarget {
     #private;
     static wcBindable: {
@@ -103,7 +103,9 @@ export declare class LambdaCore extends EventTarget {
     get done(): boolean;
     get firstByteLatency(): number | null;
     get streamError(): LambdaError | null;
+    get pinPolicy(): Readonly<LambdaPinPolicy>;
     setProvider(provider: ILambdaProvider | null): void;
+    setPinPolicy(policy: LambdaPinPolicy | null): void;
     invoke(options?: Partial<LambdaInvokeOptions>): Promise<LambdaInvokeResponse | undefined>;
     abort(): void;
     reset(): void;

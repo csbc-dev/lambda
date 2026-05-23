@@ -49,7 +49,7 @@ export interface LambdaPinPolicy {
 }
 
 export interface AwsLambdaProviderOptions {
-  invoker: LambdaInvoker;
+  invoker?: LambdaInvoker;
   policy?: LambdaPinPolicy;
 }
 

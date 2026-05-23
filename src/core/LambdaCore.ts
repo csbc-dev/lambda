@@ -1,5 +1,6 @@
 import { toLambdaError } from "../raiseError.js";
-import type { ILambdaProvider, LambdaError, LambdaInvokeOptions, LambdaInvokeResponse, LambdaMode } from "../types.js";
+import { clonePinPolicy, resolveFunctionName, resolveQualifier } from "../pinPolicy.js";
+import type { ILambdaProvider, LambdaError, LambdaInvokeOptions, LambdaInvokeResponse, LambdaMode, LambdaPinPolicy } from "../types.js";
 
 const parentProperties = [
   { name: "invoking", event: "lambda-invoke:invoking-changed" },
@@ -42,6 +43,7 @@ export class LambdaCore extends EventTarget {
 
   #target: EventTarget;
   #provider: ILambdaProvider | null;
+  #pinPolicy: LambdaPinPolicy = {};
   #functionName = "";
   #payload: unknown = null;
   #qualifier: string | null = null;
@@ -72,13 +74,13 @@ export class LambdaCore extends EventTarget {
   }
 
   get functionName(): string { return this.#functionName; }
-  set functionName(value: string) { this.#functionName = value; }
+  set functionName(value: string) { this.#functionName = resolveFunctionName(value, this.#pinPolicy); }
 
   get payload(): unknown { return this.#payload; }
   set payload(value: unknown) { this.#payload = value; }
 
   get qualifier(): string | null { return this.#qualifier; }
-  set qualifier(value: string | null) { this.#qualifier = value; }
+  set qualifier(value: string | null) { this.#qualifier = resolveQualifier(value, this.#pinPolicy); }
 
   get clientContext(): string | null { return this.#clientContext; }
   set clientContext(value: string | null) { this.#clientContext = value; }
@@ -107,9 +109,20 @@ export class LambdaCore extends EventTarget {
   get done(): boolean { return this.#done; }
   get firstByteLatency(): number | null { return this.#firstByteLatency; }
   get streamError(): LambdaError | null { return this.#streamError; }
+  get pinPolicy(): Readonly<LambdaPinPolicy> { return Object.freeze(clonePinPolicy(this.#pinPolicy)); }
 
   setProvider(provider: ILambdaProvider | null): void {
     this.#provider = provider;
+  }
+
+  setPinPolicy(policy: LambdaPinPolicy | null): void {
+    this.#pinPolicy = clonePinPolicy(policy);
+
+    if (this.#functionName || this.#pinPolicy.pinnedFunctionName) {
+      this.#functionName = resolveFunctionName(this.#functionName, this.#pinPolicy);
+    }
+
+    this.#qualifier = resolveQualifier(this.#qualifier, this.#pinPolicy);
   }
 
   async invoke(options: Partial<LambdaInvokeOptions> = {}): Promise<LambdaInvokeResponse | undefined> {

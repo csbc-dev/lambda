@@ -9,8 +9,9 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
     if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
     return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
-var _LambdaCore_instances, _LambdaCore_target, _LambdaCore_provider, _LambdaCore_functionName, _LambdaCore_payload, _LambdaCore_qualifier, _LambdaCore_clientContext, _LambdaCore_logType, _LambdaCore_mode, _LambdaCore_invoking, _LambdaCore_result, _LambdaCore_error, _LambdaCore_duration, _LambdaCore_requestId, _LambdaCore_statusCode, _LambdaCore_functionError, _LambdaCore_executedVersion, _LambdaCore_logResult, _LambdaCore_streaming, _LambdaCore_chunks, _LambdaCore_text, _LambdaCore_done, _LambdaCore_firstByteLatency, _LambdaCore_streamError, _LambdaCore_aborted, _LambdaCore_clearOutputs, _LambdaCore_setInvoking, _LambdaCore_setResult, _LambdaCore_setError, _LambdaCore_setDuration, _LambdaCore_setRequestId, _LambdaCore_setStatusCode, _LambdaCore_setFunctionError, _LambdaCore_setExecutedVersion, _LambdaCore_setLogResult, _LambdaCore_setStreaming, _LambdaCore_setChunks, _LambdaCore_setText, _LambdaCore_setDone, _LambdaCore_setFirstByteLatency, _LambdaCore_setStreamError, _LambdaCore_dispatch;
+var _LambdaCore_instances, _LambdaCore_target, _LambdaCore_provider, _LambdaCore_pinPolicy, _LambdaCore_functionName, _LambdaCore_payload, _LambdaCore_qualifier, _LambdaCore_clientContext, _LambdaCore_logType, _LambdaCore_mode, _LambdaCore_invoking, _LambdaCore_result, _LambdaCore_error, _LambdaCore_duration, _LambdaCore_requestId, _LambdaCore_statusCode, _LambdaCore_functionError, _LambdaCore_executedVersion, _LambdaCore_logResult, _LambdaCore_streaming, _LambdaCore_chunks, _LambdaCore_text, _LambdaCore_done, _LambdaCore_firstByteLatency, _LambdaCore_streamError, _LambdaCore_aborted, _LambdaCore_clearOutputs, _LambdaCore_setInvoking, _LambdaCore_setResult, _LambdaCore_setError, _LambdaCore_setDuration, _LambdaCore_setRequestId, _LambdaCore_setStatusCode, _LambdaCore_setFunctionError, _LambdaCore_setExecutedVersion, _LambdaCore_setLogResult, _LambdaCore_setStreaming, _LambdaCore_setChunks, _LambdaCore_setText, _LambdaCore_setDone, _LambdaCore_setFirstByteLatency, _LambdaCore_setStreamError, _LambdaCore_dispatch;
 import { toLambdaError } from "../raiseError.js";
+import { clonePinPolicy, resolveFunctionName, resolveQualifier } from "../pinPolicy.js";
 const parentProperties = [
     { name: "invoking", event: "lambda-invoke:invoking-changed" },
     { name: "result", event: "lambda-invoke:result-changed" },
@@ -35,6 +36,7 @@ export class LambdaCore extends EventTarget {
         _LambdaCore_instances.add(this);
         _LambdaCore_target.set(this, void 0);
         _LambdaCore_provider.set(this, void 0);
+        _LambdaCore_pinPolicy.set(this, {});
         _LambdaCore_functionName.set(this, "");
         _LambdaCore_payload.set(this, null);
         _LambdaCore_qualifier.set(this, null);
@@ -61,11 +63,11 @@ export class LambdaCore extends EventTarget {
         __classPrivateFieldSet(this, _LambdaCore_provider, provider ?? null, "f");
     }
     get functionName() { return __classPrivateFieldGet(this, _LambdaCore_functionName, "f"); }
-    set functionName(value) { __classPrivateFieldSet(this, _LambdaCore_functionName, value, "f"); }
+    set functionName(value) { __classPrivateFieldSet(this, _LambdaCore_functionName, resolveFunctionName(value, __classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f")), "f"); }
     get payload() { return __classPrivateFieldGet(this, _LambdaCore_payload, "f"); }
     set payload(value) { __classPrivateFieldSet(this, _LambdaCore_payload, value, "f"); }
     get qualifier() { return __classPrivateFieldGet(this, _LambdaCore_qualifier, "f"); }
-    set qualifier(value) { __classPrivateFieldSet(this, _LambdaCore_qualifier, value, "f"); }
+    set qualifier(value) { __classPrivateFieldSet(this, _LambdaCore_qualifier, resolveQualifier(value, __classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f")), "f"); }
     get clientContext() { return __classPrivateFieldGet(this, _LambdaCore_clientContext, "f"); }
     set clientContext(value) { __classPrivateFieldSet(this, _LambdaCore_clientContext, value, "f"); }
     get logType() { return __classPrivateFieldGet(this, _LambdaCore_logType, "f"); }
@@ -90,8 +92,16 @@ export class LambdaCore extends EventTarget {
     get done() { return __classPrivateFieldGet(this, _LambdaCore_done, "f"); }
     get firstByteLatency() { return __classPrivateFieldGet(this, _LambdaCore_firstByteLatency, "f"); }
     get streamError() { return __classPrivateFieldGet(this, _LambdaCore_streamError, "f"); }
+    get pinPolicy() { return Object.freeze(clonePinPolicy(__classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f"))); }
     setProvider(provider) {
         __classPrivateFieldSet(this, _LambdaCore_provider, provider, "f");
+    }
+    setPinPolicy(policy) {
+        __classPrivateFieldSet(this, _LambdaCore_pinPolicy, clonePinPolicy(policy), "f");
+        if (__classPrivateFieldGet(this, _LambdaCore_functionName, "f") || __classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f").pinnedFunctionName) {
+            __classPrivateFieldSet(this, _LambdaCore_functionName, resolveFunctionName(__classPrivateFieldGet(this, _LambdaCore_functionName, "f"), __classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f")), "f");
+        }
+        __classPrivateFieldSet(this, _LambdaCore_qualifier, resolveQualifier(__classPrivateFieldGet(this, _LambdaCore_qualifier, "f"), __classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f")), "f");
     }
     async invoke(options = {}) {
         if (options.functionName !== undefined)
@@ -172,7 +182,7 @@ export class LambdaCore extends EventTarget {
         __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setInvoking).call(this, false);
     }
 }
-_LambdaCore_target = new WeakMap(), _LambdaCore_provider = new WeakMap(), _LambdaCore_functionName = new WeakMap(), _LambdaCore_payload = new WeakMap(), _LambdaCore_qualifier = new WeakMap(), _LambdaCore_clientContext = new WeakMap(), _LambdaCore_logType = new WeakMap(), _LambdaCore_mode = new WeakMap(), _LambdaCore_invoking = new WeakMap(), _LambdaCore_result = new WeakMap(), _LambdaCore_error = new WeakMap(), _LambdaCore_duration = new WeakMap(), _LambdaCore_requestId = new WeakMap(), _LambdaCore_statusCode = new WeakMap(), _LambdaCore_functionError = new WeakMap(), _LambdaCore_executedVersion = new WeakMap(), _LambdaCore_logResult = new WeakMap(), _LambdaCore_streaming = new WeakMap(), _LambdaCore_chunks = new WeakMap(), _LambdaCore_text = new WeakMap(), _LambdaCore_done = new WeakMap(), _LambdaCore_firstByteLatency = new WeakMap(), _LambdaCore_streamError = new WeakMap(), _LambdaCore_aborted = new WeakMap(), _LambdaCore_instances = new WeakSet(), _LambdaCore_clearOutputs = function _LambdaCore_clearOutputs() {
+_LambdaCore_target = new WeakMap(), _LambdaCore_provider = new WeakMap(), _LambdaCore_pinPolicy = new WeakMap(), _LambdaCore_functionName = new WeakMap(), _LambdaCore_payload = new WeakMap(), _LambdaCore_qualifier = new WeakMap(), _LambdaCore_clientContext = new WeakMap(), _LambdaCore_logType = new WeakMap(), _LambdaCore_mode = new WeakMap(), _LambdaCore_invoking = new WeakMap(), _LambdaCore_result = new WeakMap(), _LambdaCore_error = new WeakMap(), _LambdaCore_duration = new WeakMap(), _LambdaCore_requestId = new WeakMap(), _LambdaCore_statusCode = new WeakMap(), _LambdaCore_functionError = new WeakMap(), _LambdaCore_executedVersion = new WeakMap(), _LambdaCore_logResult = new WeakMap(), _LambdaCore_streaming = new WeakMap(), _LambdaCore_chunks = new WeakMap(), _LambdaCore_text = new WeakMap(), _LambdaCore_done = new WeakMap(), _LambdaCore_firstByteLatency = new WeakMap(), _LambdaCore_streamError = new WeakMap(), _LambdaCore_aborted = new WeakMap(), _LambdaCore_instances = new WeakSet(), _LambdaCore_clearOutputs = function _LambdaCore_clearOutputs() {
     __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setResult).call(this, null);
     __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setError).call(this, null);
     __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setDuration).call(this, null);

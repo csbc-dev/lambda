@@ -34,7 +34,7 @@ export interface LambdaPinPolicy {
     allowedQualifiers?: readonly string[];
 }
 export interface AwsLambdaProviderOptions {
-    invoker: LambdaInvoker;
+    invoker?: LambdaInvoker;
     policy?: LambdaPinPolicy;
 }
 export interface ILambdaProvider {

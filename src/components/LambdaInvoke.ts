@@ -1,5 +1,5 @@
 import { LambdaCore } from "../core/LambdaCore.js";
-import type { LambdaError, LambdaMode, LambdaInvokeResponse } from "../types.js";
+import type { ILambdaProvider, LambdaError, LambdaMode, LambdaInvokeResponse, LambdaPinPolicy } from "../types.js";
 
 export class LambdaInvoke extends HTMLElement {
   static wcBindable = LambdaCore.wcBindable;
@@ -73,9 +73,18 @@ export class LambdaInvoke extends HTMLElement {
   get done(): boolean { return this.#core.done; }
   get firstByteLatency(): number | null { return this.#core.firstByteLatency; }
   get streamError(): LambdaError | null { return this.#core.streamError; }
+  get pinPolicy(): Readonly<LambdaPinPolicy> { return this.#core.pinPolicy; }
 
   async invoke(): Promise<LambdaInvokeResponse | undefined> {
     return this.#core.invoke();
+  }
+
+  setProvider(provider: ILambdaProvider | null): void {
+    this.#core.setProvider(provider);
+  }
+
+  setPinPolicy(policy: LambdaPinPolicy | null): void {
+    this.#core.setPinPolicy(policy);
   }
 
   abort(): void {

@@ -71,8 +71,15 @@ export class LambdaInvoke extends HTMLElement {
     get done() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").done; }
     get firstByteLatency() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").firstByteLatency; }
     get streamError() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").streamError; }
+    get pinPolicy() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").pinPolicy; }
     async invoke() {
         return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").invoke();
+    }
+    setProvider(provider) {
+        __classPrivateFieldGet(this, _LambdaInvoke_core, "f").setProvider(provider);
+    }
+    setPinPolicy(policy) {
+        __classPrivateFieldGet(this, _LambdaInvoke_core, "f").setPinPolicy(policy);
     }
     abort() {
         __classPrivateFieldGet(this, _LambdaInvoke_core, "f").abort();

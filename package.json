@@ -35,6 +35,9 @@
     "framework-agnostic",
     "csbc"
   ],
+  "dependencies": {
+    "@aws-sdk/client-lambda": "^3.937.0"
+  },
   "devDependencies": {
     "typescript": "^5.9.3"
   },
