@@ -9,7 +9,7 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
     if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
     return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
-var _LambdaCore_instances, _LambdaCore_target, _LambdaCore_provider, _LambdaCore_pinPolicy, _LambdaCore_functionName, _LambdaCore_payload, _LambdaCore_qualifier, _LambdaCore_clientContext, _LambdaCore_logType, _LambdaCore_mode, _LambdaCore_invoking, _LambdaCore_result, _LambdaCore_error, _LambdaCore_duration, _LambdaCore_requestId, _LambdaCore_statusCode, _LambdaCore_functionError, _LambdaCore_executedVersion, _LambdaCore_logResult, _LambdaCore_streaming, _LambdaCore_chunks, _LambdaCore_text, _LambdaCore_done, _LambdaCore_firstByteLatency, _LambdaCore_streamError, _LambdaCore_aborted, _LambdaCore_clearOutputs, _LambdaCore_setInvoking, _LambdaCore_setResult, _LambdaCore_setError, _LambdaCore_setDuration, _LambdaCore_setRequestId, _LambdaCore_setStatusCode, _LambdaCore_setFunctionError, _LambdaCore_setExecutedVersion, _LambdaCore_setLogResult, _LambdaCore_setStreaming, _LambdaCore_setChunks, _LambdaCore_setText, _LambdaCore_setDone, _LambdaCore_setFirstByteLatency, _LambdaCore_setStreamError, _LambdaCore_dispatch;
+var _LambdaCore_instances, _LambdaCore_target, _LambdaCore_provider, _LambdaCore_pinPolicy, _LambdaCore_functionName, _LambdaCore_payload, _LambdaCore_qualifier, _LambdaCore_clientContext, _LambdaCore_logType, _LambdaCore_mode, _LambdaCore_invoking, _LambdaCore_result, _LambdaCore_error, _LambdaCore_duration, _LambdaCore_requestId, _LambdaCore_statusCode, _LambdaCore_functionError, _LambdaCore_executedVersion, _LambdaCore_logResult, _LambdaCore_streaming, _LambdaCore_chunks, _LambdaCore_text, _LambdaCore_done, _LambdaCore_firstByteLatency, _LambdaCore_streamError, _LambdaCore_aborted, _LambdaCore_invokeStream, _LambdaCore_applyStreamChunk, _LambdaCore_clearOutputs, _LambdaCore_setInvoking, _LambdaCore_setResult, _LambdaCore_setError, _LambdaCore_setDuration, _LambdaCore_setRequestId, _LambdaCore_setStatusCode, _LambdaCore_setFunctionError, _LambdaCore_setExecutedVersion, _LambdaCore_setLogResult, _LambdaCore_setStreaming, _LambdaCore_setChunks, _LambdaCore_setText, _LambdaCore_setDone, _LambdaCore_setFirstByteLatency, _LambdaCore_setStreamError, _LambdaCore_dispatch;
 import { toLambdaError } from "../raiseError.js";
 import { clonePinPolicy, resolveFunctionName, resolveQualifier } from "../pinPolicy.js";
 const parentProperties = [
@@ -127,14 +127,17 @@ export class LambdaCore extends EventTarget {
             if (!__classPrivateFieldGet(this, _LambdaCore_functionName, "f")) {
                 throw new Error("functionName is required before invoke()");
             }
-            const response = await __classPrivateFieldGet(this, _LambdaCore_provider, "f").invoke({
+            const invokeOptions = {
                 functionName: __classPrivateFieldGet(this, _LambdaCore_functionName, "f"),
                 payload: __classPrivateFieldGet(this, _LambdaCore_payload, "f"),
                 qualifier: __classPrivateFieldGet(this, _LambdaCore_qualifier, "f"),
                 clientContext: __classPrivateFieldGet(this, _LambdaCore_clientContext, "f"),
                 logType: __classPrivateFieldGet(this, _LambdaCore_logType, "f"),
                 mode: __classPrivateFieldGet(this, _LambdaCore_mode, "f"),
-            });
+            };
+            const response = __classPrivateFieldGet(this, _LambdaCore_mode, "f") === "stream" && __classPrivateFieldGet(this, _LambdaCore_provider, "f").invokeStream
+                ? await __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_invokeStream).call(this, __classPrivateFieldGet(this, _LambdaCore_provider, "f"), invokeOptions)
+                : await __classPrivateFieldGet(this, _LambdaCore_provider, "f").invoke(invokeOptions);
             if (__classPrivateFieldGet(this, _LambdaCore_aborted, "f")) {
                 return response;
             }
@@ -145,7 +148,7 @@ export class LambdaCore extends EventTarget {
             __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setRequestId).call(this, response.requestId ?? null);
             __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setLogResult).call(this, response.logResult ?? null);
             __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setResult).call(this, response.result ?? null);
-            if (__classPrivateFieldGet(this, _LambdaCore_mode, "f") === "stream") {
+            if (__classPrivateFieldGet(this, _LambdaCore_mode, "f") === "stream" && !__classPrivateFieldGet(this, _LambdaCore_provider, "f").invokeStream) {
                 __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setStreaming).call(this, true);
                 __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setChunks).call(this, response.chunks ?? []);
                 __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setText).call(this, response.text ?? "");
@@ -182,7 +185,27 @@ export class LambdaCore extends EventTarget {
         __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setInvoking).call(this, false);
     }
 }
-_LambdaCore_target = new WeakMap(), _LambdaCore_provider = new WeakMap(), _LambdaCore_pinPolicy = new WeakMap(), _LambdaCore_functionName = new WeakMap(), _LambdaCore_payload = new WeakMap(), _LambdaCore_qualifier = new WeakMap(), _LambdaCore_clientContext = new WeakMap(), _LambdaCore_logType = new WeakMap(), _LambdaCore_mode = new WeakMap(), _LambdaCore_invoking = new WeakMap(), _LambdaCore_result = new WeakMap(), _LambdaCore_error = new WeakMap(), _LambdaCore_duration = new WeakMap(), _LambdaCore_requestId = new WeakMap(), _LambdaCore_statusCode = new WeakMap(), _LambdaCore_functionError = new WeakMap(), _LambdaCore_executedVersion = new WeakMap(), _LambdaCore_logResult = new WeakMap(), _LambdaCore_streaming = new WeakMap(), _LambdaCore_chunks = new WeakMap(), _LambdaCore_text = new WeakMap(), _LambdaCore_done = new WeakMap(), _LambdaCore_firstByteLatency = new WeakMap(), _LambdaCore_streamError = new WeakMap(), _LambdaCore_aborted = new WeakMap(), _LambdaCore_instances = new WeakSet(), _LambdaCore_clearOutputs = function _LambdaCore_clearOutputs() {
+_LambdaCore_target = new WeakMap(), _LambdaCore_provider = new WeakMap(), _LambdaCore_pinPolicy = new WeakMap(), _LambdaCore_functionName = new WeakMap(), _LambdaCore_payload = new WeakMap(), _LambdaCore_qualifier = new WeakMap(), _LambdaCore_clientContext = new WeakMap(), _LambdaCore_logType = new WeakMap(), _LambdaCore_mode = new WeakMap(), _LambdaCore_invoking = new WeakMap(), _LambdaCore_result = new WeakMap(), _LambdaCore_error = new WeakMap(), _LambdaCore_duration = new WeakMap(), _LambdaCore_requestId = new WeakMap(), _LambdaCore_statusCode = new WeakMap(), _LambdaCore_functionError = new WeakMap(), _LambdaCore_executedVersion = new WeakMap(), _LambdaCore_logResult = new WeakMap(), _LambdaCore_streaming = new WeakMap(), _LambdaCore_chunks = new WeakMap(), _LambdaCore_text = new WeakMap(), _LambdaCore_done = new WeakMap(), _LambdaCore_firstByteLatency = new WeakMap(), _LambdaCore_streamError = new WeakMap(), _LambdaCore_aborted = new WeakMap(), _LambdaCore_instances = new WeakSet(), _LambdaCore_invokeStream = async function _LambdaCore_invokeStream(provider, options) {
+    __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setStreaming).call(this, true);
+    const response = await provider.invokeStream(options, {
+        onChunk: (chunk) => {
+            if (__classPrivateFieldGet(this, _LambdaCore_aborted, "f")) {
+                return;
+            }
+            __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_applyStreamChunk).call(this, chunk);
+        },
+    });
+    __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setDone).call(this, true);
+    __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setStreaming).call(this, false);
+    return response;
+}, _LambdaCore_applyStreamChunk = function _LambdaCore_applyStreamChunk(chunk) {
+    __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setChunks).call(this, [...__classPrivateFieldGet(this, _LambdaCore_chunks, "f"), chunk.chunk]);
+    const nextText = __classPrivateFieldGet(this, _LambdaCore_text, "f") + (chunk.textDelta ?? chunk.chunk);
+    __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setText).call(this, nextText);
+    if (__classPrivateFieldGet(this, _LambdaCore_firstByteLatency, "f") === null && chunk.firstByteLatency !== undefined) {
+        __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setFirstByteLatency).call(this, chunk.firstByteLatency ?? null);
+    }
+}, _LambdaCore_clearOutputs = function _LambdaCore_clearOutputs() {
     __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setResult).call(this, null);
     __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setError).call(this, null);
     __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setDuration).call(this, null);

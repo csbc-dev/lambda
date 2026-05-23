@@ -1,6 +1,14 @@
 import { toLambdaError } from "../raiseError.js";
 import { clonePinPolicy, resolveFunctionName, resolveQualifier } from "../pinPolicy.js";
-import type { ILambdaProvider, LambdaError, LambdaInvokeOptions, LambdaInvokeResponse, LambdaMode, LambdaPinPolicy } from "../types.js";
+import type {
+  ILambdaProvider,
+  LambdaError,
+  LambdaInvokeOptions,
+  LambdaInvokeResponse,
+  LambdaMode,
+  LambdaPinPolicy,
+  LambdaStreamChunk,
+} from "../types.js";
 
 const parentProperties = [
   { name: "invoking", event: "lambda-invoke:invoking-changed" },
@@ -148,14 +156,18 @@ export class LambdaCore extends EventTarget {
         throw new Error("functionName is required before invoke()");
       }
 
-      const response = await this.#provider.invoke({
+      const invokeOptions = {
         functionName: this.#functionName,
         payload: this.#payload,
         qualifier: this.#qualifier,
         clientContext: this.#clientContext,
         logType: this.#logType,
         mode: this.#mode,
-      });
+      } satisfies LambdaInvokeOptions;
+
+      const response = this.#mode === "stream" && this.#provider.invokeStream
+        ? await this.#invokeStream(this.#provider, invokeOptions)
+        : await this.#provider.invoke(invokeOptions);
 
       if (this.#aborted) {
         return response;
@@ -169,7 +181,7 @@ export class LambdaCore extends EventTarget {
       this.#setLogResult(response.logResult ?? null);
       this.#setResult(response.result ?? null);
 
-      if (this.#mode === "stream") {
+      if (this.#mode === "stream" && !this.#provider.invokeStream) {
         this.#setStreaming(true);
         this.#setChunks(response.chunks ?? []);
         this.#setText(response.text ?? "");
@@ -195,6 +207,35 @@ export class LambdaCore extends EventTarget {
       return undefined;
     } finally {
       this.#setInvoking(false);
+    }
+  }
+
+  async #invokeStream(provider: ILambdaProvider, options: LambdaInvokeOptions): Promise<LambdaInvokeResponse> {
+    this.#setStreaming(true);
+
+    const response = await provider.invokeStream!(options, {
+      onChunk: (chunk) => {
+        if (this.#aborted) {
+          return;
+        }
+
+        this.#applyStreamChunk(chunk);
+      },
+    });
+
+    this.#setDone(true);
+    this.#setStreaming(false);
+    return response;
+  }
+
+  #applyStreamChunk(chunk: LambdaStreamChunk): void {
+    this.#setChunks([...this.#chunks, chunk.chunk]);
+
+    const nextText = this.#text + (chunk.textDelta ?? chunk.chunk);
+    this.#setText(nextText);
+
+    if (this.#firstByteLatency === null && chunk.firstByteLatency !== undefined) {
+      this.#setFirstByteLatency(chunk.firstByteLatency ?? null);
     }
   }
 

@@ -37,7 +37,21 @@ export interface LambdaInvokeResponse {
   firstByteLatency?: number | null;
 }
 
+export interface LambdaStreamChunk {
+  chunk: string;
+  textDelta?: string;
+  firstByteLatency?: number | null;
+}
+
+export interface LambdaStreamObserver {
+  onChunk(chunk: LambdaStreamChunk): void;
+}
+
 export type LambdaInvoker = (options: LambdaInvokeOptions) => Promise<LambdaInvokeResponse>;
+export type LambdaStreamInvoker = (
+  options: LambdaInvokeOptions,
+  observer: LambdaStreamObserver,
+) => Promise<LambdaInvokeResponse>;
 
 export interface LambdaPinPolicy {
   pinnedFunctionName?: string;
@@ -50,11 +64,13 @@ export interface LambdaPinPolicy {
 
 export interface AwsLambdaProviderOptions {
   invoker?: LambdaInvoker;
+  streamInvoker?: LambdaStreamInvoker;
   policy?: LambdaPinPolicy;
 }
 
 export interface ILambdaProvider {
   invoke(options: LambdaInvokeOptions): Promise<LambdaInvokeResponse>;
+  invokeStream?(options: LambdaInvokeOptions, observer: LambdaStreamObserver): Promise<LambdaInvokeResponse>;
 }
 
 export interface ITagNames {

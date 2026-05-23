@@ -8,16 +8,20 @@ import type {
   LambdaInvokeResponse,
   LambdaInvoker,
   LambdaPinPolicy,
+  LambdaStreamInvoker,
+  LambdaStreamObserver,
 } from "../types.js";
 
 export class AwsLambdaProvider implements ILambdaProvider {
   #invoker: LambdaInvoker;
+  #streamInvoker: LambdaStreamInvoker | null;
   #policy: LambdaPinPolicy;
   #client: LambdaClient | null;
 
   constructor(options: AwsLambdaProviderOptions = {}) {
     this.#client = options.invoker ? null : new LambdaClient({});
     this.#invoker = options.invoker ?? ((invokeOptions) => this.#invokeWithSdk(invokeOptions));
+    this.#streamInvoker = options.streamInvoker ?? null;
     this.#policy = clonePinPolicy(options.policy);
   }
 
@@ -31,8 +35,28 @@ export class AwsLambdaProvider implements ILambdaProvider {
     }
   }
 
+  async invokeStream(options: LambdaInvokeOptions, observer: LambdaStreamObserver): Promise<LambdaInvokeResponse> {
+    if (!this.#streamInvoker) {
+      throw toLambdaError(
+        new Error("AwsLambdaProvider does not implement stream mode yet; provide streamInvoker or add a stream transport path"),
+        "LAMBDA_CONFIG_ERROR",
+      );
+    }
+
+    const normalizedOptions = this.#normalizeOptions({
+      ...options,
+      mode: "stream",
+    });
+
+    try {
+      return await this.#streamInvoker(normalizedOptions, observer);
+    } catch (error) {
+      throw toLambdaError(error, "LAMBDA_PROVIDER_ERROR");
+    }
+  }
+
   #normalizeOptions(options: LambdaInvokeOptions): LambdaInvokeOptions {
-    if (options.mode === "stream") {
+    if (options.mode === "stream" && !this.#streamInvoker) {
       throw toLambdaError(
         new Error("AwsLambdaProvider does not implement stream mode yet; add a stream transport path first"),
         "LAMBDA_CONFIG_ERROR",

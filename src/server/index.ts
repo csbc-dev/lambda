@@ -1,4 +1,5 @@
 export { LambdaCore } from "../core/LambdaCore.js";
+export { bootstrapLambdaServer } from "./bootstrapLambdaServer.js";
 export { AwsLambdaProvider } from "../providers/AwsLambdaProvider.js";
 
 export type {
@@ -11,4 +12,7 @@ export type {
   LambdaInvokeResponse,
   LambdaMode,
   LambdaPinPolicy,
+  LambdaStreamChunk,
+  LambdaStreamInvoker,
+  LambdaStreamObserver,
 } from "../types.js";
