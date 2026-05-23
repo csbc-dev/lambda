@@ -55,7 +55,9 @@ export class LambdaInvoke extends HTMLElement {
   get mode(): LambdaMode { return this.#core.mode; }
   set mode(value: LambdaMode) {
     this.#core.mode = value;
-    this.setAttribute("mode", value);
+    if (this.getAttribute("mode") !== value) {
+      this.setAttribute("mode", value);
+    }
   }
 
   get invoking(): boolean { return this.#core.invoking; }
