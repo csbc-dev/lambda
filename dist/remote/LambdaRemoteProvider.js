@@ -9,7 +9,7 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
     if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
     return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
-var _LambdaRemoteProvider_instances, _LambdaRemoteProvider_url, _LambdaRemoteProvider_fetch, _LambdaRemoteProvider_headers, _LambdaRemoteProvider_sendInvoke;
+var _LambdaRemoteProvider_instances, _LambdaRemoteProvider_url, _LambdaRemoteProvider_fetch, _LambdaRemoteProvider_headers, _LambdaRemoteProvider_post, _LambdaRemoteProvider_parseJsonResponse, _LambdaRemoteProvider_readStreamResponse;
 import { toLambdaError } from "../raiseError.js";
 export class LambdaRemoteProvider {
     constructor(options) {
@@ -28,25 +28,25 @@ export class LambdaRemoteProvider {
         }
     }
     async invoke(options) {
-        return __classPrivateFieldGet(this, _LambdaRemoteProvider_instances, "m", _LambdaRemoteProvider_sendInvoke).call(this, options);
+        const response = await __classPrivateFieldGet(this, _LambdaRemoteProvider_instances, "m", _LambdaRemoteProvider_post).call(this, options);
+        return __classPrivateFieldGet(this, _LambdaRemoteProvider_instances, "m", _LambdaRemoteProvider_parseJsonResponse).call(this, response);
     }
     async invokeStream(options, observer) {
-        const response = await __classPrivateFieldGet(this, _LambdaRemoteProvider_instances, "m", _LambdaRemoteProvider_sendInvoke).call(this, {
-            ...options,
-            mode: "stream",
-        });
-        // The fetch remote transport returns one JSON response, so stream chunks are replayed after the server invocation completes.
-        for (const [index, chunk] of (response.chunks ?? []).entries()) {
-            observer.onChunk({
-                chunk,
-                textDelta: chunk,
-                firstByteLatency: index === 0 ? response.firstByteLatency : undefined,
-            });
+        const response = await __classPrivateFieldGet(this, _LambdaRemoteProvider_instances, "m", _LambdaRemoteProvider_post).call(this, { ...options, mode: "stream" });
+        const contentType = response.headers.get("content-type") ?? "";
+        if (response.body && isNdjson(contentType)) {
+            return __classPrivateFieldGet(this, _LambdaRemoteProvider_instances, "m", _LambdaRemoteProvider_readStreamResponse).call(this, response.body, observer);
         }
-        return response;
+        // Backward-compatible fallback: a server that returns one buffered JSON
+        // response rather than the NDJSON stream. Replay the returned chunks after
+        // completion so the observer still sees them. `firstByteLatency` here is the
+        // server-measured value, not browser-perceived.
+        const buffered = await __classPrivateFieldGet(this, _LambdaRemoteProvider_instances, "m", _LambdaRemoteProvider_parseJsonResponse).call(this, response);
+        replayBufferedChunks(buffered, observer);
+        return buffered;
     }
 }
-_LambdaRemoteProvider_url = new WeakMap(), _LambdaRemoteProvider_fetch = new WeakMap(), _LambdaRemoteProvider_headers = new WeakMap(), _LambdaRemoteProvider_instances = new WeakSet(), _LambdaRemoteProvider_sendInvoke = async function _LambdaRemoteProvider_sendInvoke(options) {
+_LambdaRemoteProvider_url = new WeakMap(), _LambdaRemoteProvider_fetch = new WeakMap(), _LambdaRemoteProvider_headers = new WeakMap(), _LambdaRemoteProvider_instances = new WeakSet(), _LambdaRemoteProvider_post = async function _LambdaRemoteProvider_post(options) {
     const { signal, ...serializableOptions } = options;
     const body = {
         command: "invoke",
@@ -65,6 +65,8 @@ _LambdaRemoteProvider_url = new WeakMap(), _LambdaRemoteProvider_fetch = new Wea
         const statusText = response.statusText ? ` ${response.statusText}` : "";
         throw toLambdaError(new Error(`Remote Lambda invoke failed with HTTP ${response.status}${statusText}`), "LAMBDA_PROVIDER_ERROR");
     }
+    return response;
+}, _LambdaRemoteProvider_parseJsonResponse = async function _LambdaRemoteProvider_parseJsonResponse(response) {
     let payload;
     try {
         payload = await response.json();
@@ -76,5 +78,81 @@ _LambdaRemoteProvider_url = new WeakMap(), _LambdaRemoteProvider_fetch = new Wea
         throw toLambdaError(payload.error, "LAMBDA_PROVIDER_ERROR");
     }
     return payload.response;
+}, _LambdaRemoteProvider_readStreamResponse = async function _LambdaRemoteProvider_readStreamResponse(body, observer) {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let receivedChunk = false;
+    let result;
+    let failure;
+    const handleLine = (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            return;
+        }
+        let event;
+        try {
+            event = JSON.parse(trimmed);
+        }
+        catch (error) {
+            throw toLambdaError(new Error(`Remote Lambda stream returned invalid NDJSON: ${error instanceof Error ? error.message : String(error)}`), "LAMBDA_PROVIDER_ERROR");
+        }
+        if (event.type === "chunk") {
+            receivedChunk = true;
+            observer.onChunk({ chunk: event.chunk, textDelta: event.textDelta, firstByteLatency: event.firstByteLatency });
+        }
+        else if (event.type === "result") {
+            result = event.response;
+        }
+        else if (event.type === "error") {
+            failure = event.error;
+        }
+    };
+    try {
+        for (;;) {
+            const { value, done } = await reader.read();
+            if (done) {
+                break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            let newlineIndex = buffer.indexOf("\n");
+            while (newlineIndex >= 0) {
+                handleLine(buffer.slice(0, newlineIndex));
+                buffer = buffer.slice(newlineIndex + 1);
+                newlineIndex = buffer.indexOf("\n");
+            }
+        }
+        buffer += decoder.decode();
+        handleLine(buffer);
+    }
+    catch (error) {
+        await reader.cancel().catch(() => { });
+        throw error;
+    }
+    if (failure) {
+        throw toLambdaError(failure, "LAMBDA_PROVIDER_ERROR");
+    }
+    if (!result) {
+        throw toLambdaError(new Error("Remote Lambda stream ended without a result"), "LAMBDA_PROVIDER_ERROR");
+    }
+    // A server that streamed NDJSON but delivered chunks only in the terminal
+    // result (for example, a non-streaming provider behind the streaming
+    // handler) still needs its chunks projected to the observer.
+    if (!receivedChunk) {
+        replayBufferedChunks(result, observer);
+    }
+    return result;
 };
+function isNdjson(contentType) {
+    return contentType.includes("ndjson") || contentType.includes("jsonl");
+}
+function replayBufferedChunks(response, observer) {
+    (response.chunks ?? []).forEach((chunk, index) => {
+        observer.onChunk({
+            chunk,
+            textDelta: chunk,
+            firstByteLatency: index === 0 ? response.firstByteLatency : undefined,
+        });
+    });
+}
 //# sourceMappingURL=LambdaRemoteProvider.js.map

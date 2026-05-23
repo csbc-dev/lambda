@@ -1,6 +1,6 @@
 import { InvokeCommand, InvokeWithResponseStreamCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { toLambdaError } from "../raiseError.js";
-import { clonePinPolicy, resolveFunctionName, resolveQualifier } from "../pinPolicy.js";
+import { clonePinPolicy, resolveFunctionName, resolveLogType, resolveQualifier } from "../pinPolicy.js";
 import type {
   AwsLambdaProviderOptions,
   ILambdaProvider,
@@ -54,11 +54,13 @@ export class AwsLambdaProvider implements ILambdaProvider {
   #normalizeOptions(options: LambdaInvokeOptions): LambdaInvokeOptions {
     const functionName = this.#resolveFunctionName(options.functionName);
     const qualifier = this.#resolveQualifier(options.qualifier ?? null);
+    const logType = resolveLogType(options.logType, this.#policy);
 
     return {
       ...options,
       functionName,
       qualifier,
+      logType,
     };
   }
 

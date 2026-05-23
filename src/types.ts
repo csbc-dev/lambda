@@ -63,8 +63,10 @@ export interface LambdaSdkClientLike {
 export interface LambdaPinPolicy {
   pinnedFunctionName?: string;
   pinnedQualifier?: string | null;
+  pinnedLogType?: "None" | "Tail";
   allowFunctionNameOverride?: boolean;
   allowQualifierOverride?: boolean;
+  allowLogTypeOverride?: boolean;
   allowedFunctionNames?: readonly string[];
   allowedQualifiers?: readonly string[];
 }
@@ -90,6 +92,17 @@ export interface LambdaRemoteInvokeRequest {
 export type LambdaRemoteInvokeResponse =
   | { ok: true; response: LambdaInvokeResponse }
   | { ok: false; error: LambdaError };
+
+/**
+ * NDJSON wire protocol for streaming remote invocation. The server-owned
+ * handler emits one JSON object per line: zero or more `chunk` events as the
+ * Lambda response streams in, terminated by exactly one `result` or `error`
+ * event. The buffered (non-stream) path keeps using `LambdaRemoteInvokeResponse`.
+ */
+export type LambdaRemoteStreamEvent =
+  | { type: "chunk"; chunk: string; textDelta?: string; firstByteLatency?: number | null }
+  | { type: "result"; response: LambdaInvokeResponse }
+  | { type: "error"; error: LambdaError };
 
 export interface ILambdaProvider {
   invoke(options: LambdaInvokeOptions): Promise<LambdaInvokeResponse>;

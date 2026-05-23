@@ -1,6 +1,8 @@
 import { toLambdaError } from "../raiseError.js";
+const NDJSON_CONTENT_TYPE = "application/x-ndjson";
 export function createLambdaRemoteHandler(coreSource, options = {}) {
     let sharedCoreBusy = false;
+    const isSharedCore = typeof coreSource !== "function";
     return async (request) => {
         if (request.method !== "POST") {
             return Response.json(remoteError(new Error("Method not allowed"), "LAMBDA_CONFIG_ERROR"), { status: 405 });
@@ -30,26 +32,40 @@ export function createLambdaRemoteHandler(coreSource, options = {}) {
         catch (error) {
             return Response.json(remoteError(error, "LAMBDA_CONFIG_ERROR"), { status: 500 });
         }
-        if (typeof coreSource !== "function") {
+        if (isSharedCore) {
             if (sharedCoreBusy) {
                 return Response.json(remoteError(new Error("Shared LambdaCore is already handling an invocation; pass a Core factory for concurrent requests"), "LAMBDA_CONFIG_ERROR"), { status: 409 });
             }
             sharedCoreBusy = true;
         }
+        const releaseSharedCore = () => {
+            if (isSharedCore) {
+                sharedCoreBusy = false;
+            }
+        };
+        const timeoutMs = options.sharedCoreTimeoutMs ?? 300000;
+        // Stream mode returns an NDJSON body so chunks reach the browser as the
+        // Lambda response streams in, instead of being buffered into one JSON
+        // response and replayed after completion.
+        if (body.options.mode === "stream") {
+            return streamInvocation(core, body.options, {
+                isSharedCore,
+                timeoutMs,
+                releaseSharedCore,
+            });
+        }
         let response;
         try {
             const invokePromise = core.invoke(body.options);
-            response = typeof coreSource === "function"
-                ? await invokePromise
-                : await withSharedCoreTimeout(core, invokePromise, options.sharedCoreTimeoutMs ?? 300000);
+            response = isSharedCore
+                ? await withSharedCoreTimeout(core, invokePromise, timeoutMs)
+                : await invokePromise;
         }
         catch (error) {
             return Response.json(remoteError(error, "LAMBDA_INVOKE_FAILED"), { status: isTimeoutError(error) ? 504 : 500 });
         }
         finally {
-            if (typeof coreSource !== "function") {
-                sharedCoreBusy = false;
-            }
+            releaseSharedCore();
         }
         if (!response) {
             return Response.json({
@@ -62,6 +78,69 @@ export function createLambdaRemoteHandler(coreSource, options = {}) {
             response,
         });
     };
+}
+function streamInvocation(core, options, context) {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+        async start(controller) {
+            let open = true;
+            const write = (event) => {
+                if (!open) {
+                    return;
+                }
+                try {
+                    controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+                }
+                catch {
+                    // Consumer cancelled; stop trying to write.
+                    open = false;
+                }
+            };
+            try {
+                const invokePromise = core.invoke(options, {
+                    onChunk: (chunk) => write({
+                        type: "chunk",
+                        chunk: chunk.chunk,
+                        textDelta: chunk.textDelta,
+                        firstByteLatency: chunk.firstByteLatency,
+                    }),
+                });
+                const response = context.isSharedCore
+                    ? await withSharedCoreTimeout(core, invokePromise, context.timeoutMs)
+                    : await invokePromise;
+                if (!response) {
+                    write({ type: "error", error: core.error ?? toLambdaError(new Error("Remote Lambda invocation failed"), "LAMBDA_INVOKE_FAILED") });
+                }
+                else {
+                    write({ type: "result", response });
+                }
+            }
+            catch (error) {
+                write({ type: "error", error: toLambdaError(error, "LAMBDA_INVOKE_FAILED") });
+            }
+            finally {
+                context.releaseSharedCore();
+                if (open) {
+                    try {
+                        controller.close();
+                    }
+                    catch {
+                        // Already closed by a cancel.
+                    }
+                }
+            }
+        },
+        cancel() {
+            // The consumer (browser) disconnected mid-stream. Abort the in-flight
+            // invocation so the Core stops forwarding and the shared lock is freed.
+            core.abort();
+            context.releaseSharedCore();
+        },
+    });
+    return new Response(stream, {
+        status: 200,
+        headers: { "content-type": NDJSON_CONTENT_TYPE },
+    });
 }
 async function withSharedCoreTimeout(core, invokePromise, timeoutMs) {
     if (timeoutMs <= 0) {

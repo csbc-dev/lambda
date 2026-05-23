@@ -11,7 +11,7 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
 };
 var _LambdaCore_instances, _LambdaCore_target, _LambdaCore_provider, _LambdaCore_pinPolicy, _LambdaCore_functionName, _LambdaCore_payload, _LambdaCore_qualifier, _LambdaCore_clientContext, _LambdaCore_logType, _LambdaCore_mode, _LambdaCore_invoking, _LambdaCore_result, _LambdaCore_error, _LambdaCore_duration, _LambdaCore_requestId, _LambdaCore_statusCode, _LambdaCore_functionError, _LambdaCore_executedVersion, _LambdaCore_logResult, _LambdaCore_streaming, _LambdaCore_chunks, _LambdaCore_text, _LambdaCore_done, _LambdaCore_firstByteLatency, _LambdaCore_streamError, _LambdaCore_activeInvocationId, _LambdaCore_activeController, _LambdaCore_trySetFunctionName, _LambdaCore_trySetQualifier, _LambdaCore_invokeStream, _LambdaCore_applyStreamChunk, _LambdaCore_clearOutputs, _LambdaCore_setInvoking, _LambdaCore_setResult, _LambdaCore_setError, _LambdaCore_setDuration, _LambdaCore_setRequestId, _LambdaCore_setStatusCode, _LambdaCore_setFunctionError, _LambdaCore_setExecutedVersion, _LambdaCore_setLogResult, _LambdaCore_setStreaming, _LambdaCore_setChunks, _LambdaCore_setText, _LambdaCore_setDone, _LambdaCore_setFirstByteLatency, _LambdaCore_setStreamError, _LambdaCore_isCurrentInvocation, _LambdaCore_dispatch;
 import { toLambdaError } from "../raiseError.js";
-import { clonePinPolicy, resolveFunctionName, resolveQualifier } from "../pinPolicy.js";
+import { clonePinPolicy, resolveFunctionName, resolveLogType, resolveQualifier } from "../pinPolicy.js";
 const parentProperties = [
     { name: "invoking", event: "lambda-invoke:invoking-changed" },
     { name: "result", event: "lambda-invoke:result-changed" },
@@ -72,7 +72,7 @@ export class LambdaCore extends EventTarget {
     get clientContext() { return __classPrivateFieldGet(this, _LambdaCore_clientContext, "f"); }
     set clientContext(value) { __classPrivateFieldSet(this, _LambdaCore_clientContext, value, "f"); }
     get logType() { return __classPrivateFieldGet(this, _LambdaCore_logType, "f"); }
-    set logType(value) { __classPrivateFieldSet(this, _LambdaCore_logType, value, "f"); }
+    set logType(value) { __classPrivateFieldSet(this, _LambdaCore_logType, resolveLogType(value, __classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f")), "f"); }
     get mode() { return __classPrivateFieldGet(this, _LambdaCore_mode, "f"); }
     set mode(value) {
         __classPrivateFieldSet(this, _LambdaCore_mode, value, "f");
@@ -104,8 +104,9 @@ export class LambdaCore extends EventTarget {
             __classPrivateFieldSet(this, _LambdaCore_functionName, resolveFunctionName(__classPrivateFieldGet(this, _LambdaCore_functionName, "f"), __classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f")), "f");
         }
         __classPrivateFieldSet(this, _LambdaCore_qualifier, resolveQualifier(__classPrivateFieldGet(this, _LambdaCore_qualifier, "f"), __classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f")), "f");
+        __classPrivateFieldSet(this, _LambdaCore_logType, resolveLogType(__classPrivateFieldGet(this, _LambdaCore_logType, "f"), __classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f")), "f");
     }
-    async invoke(options = {}) {
+    async invoke(options = {}, observer) {
         var _a;
         __classPrivateFieldGet(this, _LambdaCore_activeController, "f")?.abort();
         const invocationId = __classPrivateFieldSet(this, _LambdaCore_activeInvocationId, (_a = __classPrivateFieldGet(this, _LambdaCore_activeInvocationId, "f"), ++_a), "f");
@@ -145,7 +146,7 @@ export class LambdaCore extends EventTarget {
                 signal: controller.signal,
             };
             const response = __classPrivateFieldGet(this, _LambdaCore_mode, "f") === "stream" && __classPrivateFieldGet(this, _LambdaCore_provider, "f").invokeStream
-                ? await __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_invokeStream).call(this, __classPrivateFieldGet(this, _LambdaCore_provider, "f"), invokeOptions, invocationId)
+                ? await __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_invokeStream).call(this, __classPrivateFieldGet(this, _LambdaCore_provider, "f"), invokeOptions, invocationId, observer)
                 : await __classPrivateFieldGet(this, _LambdaCore_provider, "f").invoke(invokeOptions);
             if (!__classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_isCurrentInvocation).call(this, invocationId) || controller.signal.aborted) {
                 return response;
@@ -238,7 +239,7 @@ _LambdaCore_target = new WeakMap(), _LambdaCore_provider = new WeakMap(), _Lambd
         __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setError).call(this, toLambdaError(error, "LAMBDA_POLICY_DENIED"));
         return false;
     }
-}, _LambdaCore_invokeStream = async function _LambdaCore_invokeStream(provider, options, invocationId) {
+}, _LambdaCore_invokeStream = async function _LambdaCore_invokeStream(provider, options, invocationId, observer) {
     __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_setStreaming).call(this, true);
     const response = await provider.invokeStream(options, {
         onChunk: (chunk) => {
@@ -246,6 +247,10 @@ _LambdaCore_target = new WeakMap(), _LambdaCore_provider = new WeakMap(), _Lambd
                 return;
             }
             __classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_applyStreamChunk).call(this, chunk);
+            // Fan the chunk out to an external consumer (e.g. the remote handler
+            // forwarding it over the network) while the Core stays the authority
+            // for state. The forward happens only for live, non-aborted chunks.
+            observer?.onChunk(chunk);
         },
     });
     if (!__classPrivateFieldGet(this, _LambdaCore_instances, "m", _LambdaCore_isCurrentInvocation).call(this, invocationId) || options.signal?.aborted) {

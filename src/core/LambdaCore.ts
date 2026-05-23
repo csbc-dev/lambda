@@ -1,5 +1,5 @@
 import { toLambdaError } from "../raiseError.js";
-import { clonePinPolicy, resolveFunctionName, resolveQualifier } from "../pinPolicy.js";
+import { clonePinPolicy, resolveFunctionName, resolveLogType, resolveQualifier } from "../pinPolicy.js";
 import type {
   ILambdaProvider,
   LambdaError,
@@ -8,6 +8,7 @@ import type {
   LambdaMode,
   LambdaPinPolicy,
   LambdaStreamChunk,
+  LambdaStreamObserver,
 } from "../types.js";
 
 const parentProperties = [
@@ -95,7 +96,7 @@ export class LambdaCore extends EventTarget {
   set clientContext(value: string | null) { this.#clientContext = value; }
 
   get logType(): "None" | "Tail" { return this.#logType; }
-  set logType(value: "None" | "Tail") { this.#logType = value; }
+  set logType(value: "None" | "Tail") { this.#logType = resolveLogType(value, this.#pinPolicy); }
 
   get mode(): LambdaMode { return this.#mode; }
   set mode(value: LambdaMode) {
@@ -134,6 +135,7 @@ export class LambdaCore extends EventTarget {
     }
 
     this.#qualifier = resolveQualifier(this.#qualifier, this.#pinPolicy);
+    this.#logType = resolveLogType(this.#logType, this.#pinPolicy);
   }
 
   #trySetFunctionName(value: string): boolean {
@@ -156,7 +158,10 @@ export class LambdaCore extends EventTarget {
     }
   }
 
-  async invoke(options: Partial<LambdaInvokeOptions> = {}): Promise<LambdaInvokeResponse | undefined> {
+  async invoke(
+    options: Partial<LambdaInvokeOptions> = {},
+    observer?: LambdaStreamObserver,
+  ): Promise<LambdaInvokeResponse | undefined> {
     this.#activeController?.abort();
 
     const invocationId = ++this.#activeInvocationId;
@@ -198,7 +203,7 @@ export class LambdaCore extends EventTarget {
       } satisfies LambdaInvokeOptions;
 
       const response = this.#mode === "stream" && this.#provider.invokeStream
-        ? await this.#invokeStream(this.#provider, invokeOptions, invocationId)
+        ? await this.#invokeStream(this.#provider, invokeOptions, invocationId, observer)
         : await this.#provider.invoke(invokeOptions);
 
       if (!this.#isCurrentInvocation(invocationId) || controller.signal.aborted) {
@@ -259,7 +264,12 @@ export class LambdaCore extends EventTarget {
     }
   }
 
-  async #invokeStream(provider: ILambdaProvider, options: LambdaInvokeOptions, invocationId: number): Promise<LambdaInvokeResponse> {
+  async #invokeStream(
+    provider: ILambdaProvider,
+    options: LambdaInvokeOptions,
+    invocationId: number,
+    observer?: LambdaStreamObserver,
+  ): Promise<LambdaInvokeResponse> {
     this.#setStreaming(true);
 
     const response = await provider.invokeStream!(options, {
@@ -269,6 +279,10 @@ export class LambdaCore extends EventTarget {
         }
 
         this.#applyStreamChunk(chunk);
+        // Fan the chunk out to an external consumer (e.g. the remote handler
+        // forwarding it over the network) while the Core stays the authority
+        // for state. The forward happens only for live, non-aborted chunks.
+        observer?.onChunk(chunk);
       },
     });
 

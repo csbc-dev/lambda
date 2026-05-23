@@ -148,11 +148,11 @@ function createMockProvider() {
       };
     },
 
-    // Stream mode. The fetch remote transport returns one JSON response, so
-    // the server-side Core invokes invokeStream to completion and the chunks
-    // are replayed by the browser's LambdaRemoteProvider. We still emit them
-    // through the observer here so the server-side Core accumulates the same
-    // chunks/text it returns, keeping the response self-consistent.
+    // Stream mode. Each chunk emitted through the observer is forwarded by the
+    // Core to the remote handler, which writes it to the browser as an NDJSON
+    // stream event in real time (the browser's LambdaRemoteProvider projects
+    // them as they arrive). The returned chunks/text keep the terminal result
+    // self-consistent with what was streamed.
     async invokeStream(options, observer) {
       const words = ["Remote", " stream", " response", " for ", summarizePayload(options.payload)];
       const chunks = [];

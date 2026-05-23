@@ -162,3 +162,14 @@ The recommended implementation order stays:
 1. buffered invocation on `<lambda-invoke>`
 2. proxied stream projection on `<lambda-stream>`
 3. optional direct-stream optimization behind the same contract
+
+## Implementation status
+
+The baseline described above — a privileged runtime that *forwards chunk events to the browser-facing surface in real time* — is now shipped end to end:
+
+- **Server-side, real-time:** the default `AwsLambdaProvider` consumes Lambda `InvokeWithResponseStream` and forwards chunks to the Core as they arrive.
+- **Browser-to-server, real-time:** the remote handler (`createLambdaRemoteHandler`) responds to stream-mode requests with an **NDJSON** body — one `chunk` event per line as the Core forwards them, terminated by a single `result` or `error` event. `LambdaRemoteProvider` reads that stream incrementally and projects each chunk on arrival, so `firstByteLatency` is browser-perceived across the network boundary. The Core forwards chunks to the network transport through an optional observer on `invoke()`, keeping it the sole authority for state and policy.
+
+This is the server-proxied stream this ADR chose as the baseline. It carries no transport detail into the public parent-child bindable surface, so the still-deferred presigned direct-stream optimization (Alternative A) remains addable under the same contract.
+
+**Backward-compatible fallback.** If an endpoint returns one buffered JSON response instead of NDJSON (an older server, or a deployment whose provider does not stream), `LambdaRemoteProvider` detects the non-NDJSON content type and replays the returned chunks after completion. In that path delivery is not incremental and `firstByteLatency` is the server-measured value replayed verbatim (see SPEC §9.2 and the README remote-invocation note). The bindable surface is identical either way.

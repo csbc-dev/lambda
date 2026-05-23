@@ -145,6 +145,67 @@ describe("AwsLambdaProvider", () => {
     });
   });
 
+  it("pins logType when the policy forbids overriding it", async () => {
+    const invoker = vi.fn(async () => ({
+      result: { ok: true },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-log-pinned",
+      logResult: null,
+    }));
+
+    const provider = new AwsLambdaProvider({
+      invoker,
+      policy: {
+        pinnedFunctionName: "safe-function",
+        pinnedLogType: "None",
+      },
+    });
+
+    await provider.invoke({
+      functionName: "safe-function",
+      payload: null,
+      logType: "Tail",
+      mode: "buffered",
+    });
+
+    expect(invoker).toHaveBeenCalledWith(expect.objectContaining({
+      logType: "None",
+    }));
+  });
+
+  it("allows client logType when the policy opts into override", async () => {
+    const invoker = vi.fn(async () => ({
+      result: { ok: true },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-log-override",
+      logResult: null,
+    }));
+
+    const provider = new AwsLambdaProvider({
+      invoker,
+      policy: {
+        pinnedFunctionName: "safe-function",
+        pinnedLogType: "None",
+        allowLogTypeOverride: true,
+      },
+    });
+
+    await provider.invoke({
+      functionName: "safe-function",
+      payload: null,
+      logType: "Tail",
+      mode: "buffered",
+    });
+
+    expect(invoker).toHaveBeenCalledWith(expect.objectContaining({
+      logType: "Tail",
+    }));
+  });
+
   it("uses the injected streamInvoker for stream mode", async () => {
     const streamInvoker = vi.fn(async (_options, observer) => {
       observer.onChunk({ chunk: "Hel", textDelta: "Hel", firstByteLatency: 5 });

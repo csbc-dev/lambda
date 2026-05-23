@@ -12,7 +12,7 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
 var _AwsLambdaProvider_instances, _AwsLambdaProvider_invoker, _AwsLambdaProvider_streamInvoker, _AwsLambdaProvider_policy, _AwsLambdaProvider_client, _AwsLambdaProvider_normalizeOptions, _AwsLambdaProvider_resolveFunctionName, _AwsLambdaProvider_resolveQualifier, _AwsLambdaProvider_invokeWithSdk, _AwsLambdaProvider_invokeStreamWithSdk;
 import { InvokeCommand, InvokeWithResponseStreamCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { toLambdaError } from "../raiseError.js";
-import { clonePinPolicy, resolveFunctionName, resolveQualifier } from "../pinPolicy.js";
+import { clonePinPolicy, resolveFunctionName, resolveLogType, resolveQualifier } from "../pinPolicy.js";
 export class AwsLambdaProvider {
     constructor(options = {}) {
         _AwsLambdaProvider_instances.add(this);
@@ -52,10 +52,12 @@ export class AwsLambdaProvider {
 _AwsLambdaProvider_invoker = new WeakMap(), _AwsLambdaProvider_streamInvoker = new WeakMap(), _AwsLambdaProvider_policy = new WeakMap(), _AwsLambdaProvider_client = new WeakMap(), _AwsLambdaProvider_instances = new WeakSet(), _AwsLambdaProvider_normalizeOptions = function _AwsLambdaProvider_normalizeOptions(options) {
     const functionName = __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_resolveFunctionName).call(this, options.functionName);
     const qualifier = __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_resolveQualifier).call(this, options.qualifier ?? null);
+    const logType = resolveLogType(options.logType, __classPrivateFieldGet(this, _AwsLambdaProvider_policy, "f"));
     return {
         ...options,
         functionName,
         qualifier,
+        logType,
     };
 }, _AwsLambdaProvider_resolveFunctionName = function _AwsLambdaProvider_resolveFunctionName(requestedValue) {
     return resolveFunctionName(requestedValue, __classPrivateFieldGet(this, _AwsLambdaProvider_policy, "f"));

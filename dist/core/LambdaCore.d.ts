@@ -1,4 +1,4 @@
-import type { ILambdaProvider, LambdaError, LambdaInvokeOptions, LambdaInvokeResponse, LambdaMode, LambdaPinPolicy } from "../types.js";
+import type { ILambdaProvider, LambdaError, LambdaInvokeOptions, LambdaInvokeResponse, LambdaMode, LambdaPinPolicy, LambdaStreamObserver } from "../types.js";
 export declare class LambdaCore extends EventTarget {
     #private;
     static wcBindable: {
@@ -107,7 +107,7 @@ export declare class LambdaCore extends EventTarget {
     get hasProvider(): boolean;
     setProvider(provider: ILambdaProvider | null): void;
     setPinPolicy(policy: LambdaPinPolicy | null): void;
-    invoke(options?: Partial<LambdaInvokeOptions>): Promise<LambdaInvokeResponse | undefined>;
+    invoke(options?: Partial<LambdaInvokeOptions>, observer?: LambdaStreamObserver): Promise<LambdaInvokeResponse | undefined>;
     abort(): void;
     reset(): void;
 }

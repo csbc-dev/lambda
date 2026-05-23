@@ -37,6 +37,23 @@ export function resolveFunctionName(requestedValue: string, policy: LambdaPinPol
   return resolvedValue;
 }
 
+export function resolveLogType(
+  requestedValue: "None" | "Tail" | undefined,
+  policy: LambdaPinPolicy,
+): "None" | "Tail" {
+  const { pinnedLogType, allowLogTypeOverride = false } = policy;
+
+  // `Tail` returns the last 4 KB of the function's execution log, which can
+  // leak runtime environment details. When the server pins a log type and does
+  // not opt into override, the client's request is ignored — the same posture
+  // used for functionName and qualifier (see SPEC 10.4).
+  if (pinnedLogType !== undefined && !allowLogTypeOverride) {
+    return pinnedLogType;
+  }
+
+  return requestedValue ?? pinnedLogType ?? "None";
+}
+
 export function resolveQualifier(requestedValue: string | null, policy: LambdaPinPolicy): string | null {
   const {
     pinnedQualifier,

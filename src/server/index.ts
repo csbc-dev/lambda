@@ -17,6 +17,7 @@ export type {
   LambdaRemoteInvokeRequest,
   LambdaRemoteInvokeResponse,
   LambdaRemoteProviderOptions,
+  LambdaRemoteStreamEvent,
   LambdaStreamChunk,
   LambdaStreamInvoker,
   LambdaStreamObserver,

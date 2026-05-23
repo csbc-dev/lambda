@@ -11,6 +11,7 @@ This repository is in alpha implementation.
 - Buffered invoke: implemented through `AwsLambdaProvider`
 - Stream invoke: implemented through AWS `InvokeWithResponseStream`; custom transports can still be injected through `streamInvoker`
 - Remote invocation: implemented through a fetch-backed browser provider and server-owned Core handler
+- Remote streaming: the remote handler streams chunks to the browser over NDJSON as they arrive (no buffering); a buffered-JSON server still works as a fallback
 
 The design intent is documented in [CLAUDE.md](https://github.com/csbc-dev/lambda/blob/main/CLAUDE.md) and the package contract is fixed in [SPEC.md](SPEC.md).
 
@@ -104,7 +105,11 @@ await invoke?.invoke();
 
 The browser may still set `functionName` or `qualifier` properties for deployments that explicitly allow it, but the server Core's pin policy is authoritative.
 
-The fetch-backed remote provider returns a single JSON response. In stream mode it replays any returned `chunks` into the stream observer after the server invocation completes; it is not a real-time browser streaming transport. Use a custom provider or future streaming transport when first-byte delivery to the browser matters.
+In buffered mode the remote provider exchanges a single JSON request/response.
+
+In stream mode the remote handler responds with an [NDJSON](https://github.com/ndjson/ndjson-spec) body (`content-type: application/x-ndjson`): one JSON object per line — zero or more `{"type":"chunk",...}` events as the Lambda response streams in, terminated by exactly one `{"type":"result",...}` or `{"type":"error",...}` event. The browser provider reads that stream incrementally and projects each chunk as it arrives, so `<lambda-stream>` updates token-by-token and `firstByteLatency` reflects real browser-perceived first-byte latency. The Core still owns transport choice — the browser only sees state — so this is an internal transport, not a contract change ([SPEC §9.2](SPEC.md), [ADR 0001](docs/adr/0001-stream-transport.md)).
+
+> **Backward-compatible fallback.** If the endpoint instead returns one buffered JSON response (an older server, or a deployment whose provider does not stream), the browser provider detects the non-NDJSON content type and replays the returned `chunks` after completion. In that fallback path every chunk — including the first — arrives only after the invocation completes, so `firstByteLatency` is the server-measured value replayed verbatim, not browser-perceived. The public bindable surface is identical either way.
 
 ### Three ways to attach the remote Core (browser)
 
@@ -160,22 +165,61 @@ For tests, non-AWS runtimes, or server-proxied stream transports, pass a custom 
 
 ## Pin policy
 
-`functionName` and `qualifier` are security-sensitive. The safe default is to pin them server-side.
+`functionName`, `qualifier`, and `logType` are security-sensitive. The safe default is to pin them server-side.
 
 ```ts
 core.setPinPolicy({
 	pinnedFunctionName: "my-safe-function",
 	pinnedQualifier: "live",
+	pinnedLogType: "None",
 });
 ```
 
-The browser should not be allowed to choose arbitrary Lambda targets unless the server explicitly allows it.
+The browser should not be allowed to choose arbitrary Lambda targets unless the server explicitly allows it. `logType` is pinned on the same axis because `Tail` returns the last 4 KB of the function execution log, which can expose runtime environment details. Open each axis explicitly when a deployment needs client selection:
+
+```ts
+core.setPinPolicy({
+	pinnedFunctionName: "default-function",
+	allowFunctionNameOverride: true,
+	allowedFunctionNames: ["default-function", "tenant-function"],
+	allowQualifierOverride: true,
+	allowedQualifiers: ["live", "canary"],
+	allowLogTypeOverride: true,
+});
+```
+
+When an axis is pinned without its override flag, a client-supplied value for that field is **silently ignored** rather than rejected: `el.functionName = "other"` keeps the pinned name, and `el.logType = "Tail"` keeps the pinned log type. The property and `function-name` / `log-type` attributes still exist so the declarative `wc-bindable` contract is uniform across deployments, but the server pin policy — not the browser — is authoritative. Use `allowedFunctionNames` / `allowedQualifiers` (with the matching override flag) when an out-of-policy value should instead surface a `LAMBDA_POLICY_DENIED` error.
 
 ## Cancellation
 
 `abort()` cancels local result delivery for the active invocation and passes an `AbortSignal` to providers. If the underlying provider or transport honors that signal, the in-flight request may be cancelled there too. The package does not promise that an already accepted Lambda execution stops on the AWS side.
 
 Starting a new invocation also aborts the previous provider signal and prevents late results from overwriting newer state.
+
+## Deployment: CSP, CORS, and credentials
+
+Because the package is remote-first, the browser only ever talks to your server-owned Core endpoint over `fetch`. Plan the network boundary explicitly.
+
+**Same-origin is the default and the recommended shape.** The examples proxy `/api/lambda` so browser code stays same-origin. `createLambdaRemoteHandler` emits **no** CORS headers of its own — a same-origin deployment needs none, and not emitting them by default avoids accidentally opening the endpoint cross-origin.
+
+**Content Security Policy.** The remote endpoint is reached with `fetch`, so it must be allowed by `connect-src`:
+
+```
+Content-Security-Policy: connect-src 'self';
+```
+
+Use `'self'` for the same-origin shape. If the Core endpoint is on another origin, add that exact origin (for example `connect-src 'self' https://api.example.com;`). The package loads no remote scripts itself, so it adds no `script-src` requirement beyond your own bundle.
+
+**Cross-origin endpoints (CORS).** If the Core endpoint is on a different origin than the page, the browser will preflight and require CORS headers. `createLambdaRemoteHandler` does not add them, so your HTTP layer must:
+
+- answer `OPTIONS` preflight for the endpoint path
+- return `Access-Control-Allow-Origin` for an explicit allowlist of trusted origins (never reflect arbitrary origins, and avoid `*` on an authenticated endpoint)
+- allow the `content-type` request header and the `POST` method
+- send `Vary: Origin` when the allowed origin is computed per request
+
+The example server in [`examples/server/server.js`](https://github.com/csbc-dev/lambda/blob/main/examples/server/server.js) shows this pattern with an `ALLOWED_ORIGINS` allowlist.
+
+**Credentials mode.** The fetch-backed provider sends requests with the browser default credentials mode and forwards any `headers` you configure. For a token-authenticated endpoint (the `authenticate` hook above), pass the token via a header rather than relying on ambient cookies. If you do authenticate with cookies on a cross-origin endpoint, you must additionally set `Access-Control-Allow-Credentials: true` and a non-wildcard `Access-Control-Allow-Origin`. AWS credentials always stay server-side and are never part of this exchange.
 
 ## Error behavior
 

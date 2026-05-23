@@ -131,8 +131,7 @@ The initial public contract for `<lambda-invoke>` should be:
 
 | Kind | Name | Notes |
 |---|---|---|
-| property | `invoking` | `true` while an invocation is active from the parent's perspective |
-| property | `loading` | Alias or equivalent compatibility surface if needed; avoid exposing both unless there is a clear reason |
+| property | `invoking` | `true` while an invocation is active from the parent's perspective. This is the single liveness property; `loading` is intentionally **not** exposed (decided to avoid two bindable surfaces for the same state) |
 | property | `result` | Buffered result payload for non-streaming mode |
 | property | `error` | Normalized package-level error object or `null` |
 | property | `duration` | End-to-end measured duration from the package perspective |
@@ -163,7 +162,7 @@ The initial public contract for `<lambda-stream>` should be:
 | property | `chunks` | Ordered chunk list or chunk-like projection |
 | property | `text` | Accumulated textual projection when the stream is textual |
 | property | `done` | `true` once the stream is terminal |
-| property | `firstByteLatency` | Time to first streamed chunk |
+| property | `firstByteLatency` | Time to first streamed chunk, as measured by whichever runtime owns the live stream. With a real streaming transport (the default NDJSON remote transport, or a co-located Core) this is browser-/consumer-perceived first-byte; with a buffer-and-replay fallback transport it is the server-measured value replayed after completion, not browser-perceived. The property's meaning is contract-stable; its fidelity depends on the transport (see §9.2) |
 | property | `streamError` | Streaming-specific projection error if the child exposes one |
 
 The child should avoid re-exposing parent-owned fields unless they are clearly read-only projections.
@@ -180,7 +179,15 @@ If the child cannot find a valid parent:
 - it must enter a safe inert state
 - it should publish a normal package error state rather than crashing the page
 
-Whether that error is surfaced on the child, the parent, or both should be decided once and documented consistently.
+The attachment failure is surfaced **on the child only**, through the child's `streamError` projection with error code `LAMBDA_PARENT_REQUIRED`. The parent is intentionally not involved: a missing parent means there is no authoritative surface to carry the error, and the failure is local to the orphaned child. A child that later attaches to a valid parent re-syncs from the parent and clears this state. This is the single decided behavior; it is not surfaced on the parent or duplicated across both.
+
+### 8.1 Multiple children on one parent
+
+A single `<lambda-invoke>` may have more than one `<lambda-stream>` child. Because children are read-only projections, this is well-defined: every child independently subscribes to the parent's streaming events and mirrors the same parent-owned state. Children do not coordinate with each other, do not compete for authority, and cannot diverge from the parent. No child is privileged over the others.
+
+### 8.2 Child detachment during an active stream
+
+If a child is removed from the DOM while a stream is in flight, it must unsubscribe from the parent and stop projecting. This does not affect the invocation: the Core forwards state to the **parent**, which keeps accumulating chunks and terminal state regardless of whether any child is attached. A child re-attached later re-syncs from the parent's current state, so detaching and re-attaching mid-stream is safe and lossless from the parent's perspective. The child only ever loses the chunk-by-chunk projection it was disconnected for, not the parent's authoritative accumulation.
 
 ## 9. Invocation modes
 
@@ -208,8 +215,11 @@ Examples of acceptable transport strategies include:
 
 - a server-proxied stream
 - a direct browser stream against a presigned endpoint
+- a buffer-and-replay fallback where a non-streaming server returns one response and the browser replays its chunks
 
 The public contract must not depend on which one is selected.
+
+The shipped baseline is a **server-proxied stream over NDJSON**: the remote handler emits one JSON event per line (`chunk` events terminated by a single `result` or `error` event), and the browser provider projects each chunk as it arrives. The browser provider falls back to buffer-and-replay when the endpoint returns a non-NDJSON JSON response. A presigned direct browser stream remains an allowed future optimization (see [ADR 0001](docs/adr/0001-stream-transport.md)). None of these change the bindable surface.
 
 ### 9.3 Async fire-and-forget mode
 
@@ -241,6 +251,18 @@ Unbounded client selection of arbitrary function names is not a safe default.
 ### 10.3 Payload is the intended caller-controlled input
 
 In the general case, `payload` is the main user-controlled input surface. It must still be validated by the Core or provider layer according to deployment policy.
+
+### 10.4 Log type is server-pinnable
+
+`logType` is security-sensitive in the same way as `functionName` and `qualifier`. `Tail` returns the last 4 KB of the function execution log, which can expose runtime environment details that a browser caller should not necessarily be able to request.
+
+The pin policy must therefore support `logType` on the same opt-in axis as function selection:
+
+- the server may pin `logType` (for example, force `None`)
+- when pinned without an explicit override flag, a client-supplied `logType` is ignored
+- a deployment that genuinely needs client-selected tail logging opts in explicitly
+
+A safe deployment that surfaces tail logs to the browser should treat that as a deliberate choice, not a default.
 
 ## 11. Core responsibilities
 
@@ -304,6 +326,15 @@ The package contract should define `abort()` as:
 - moving the surfaced UI state out of the active invocation state
 
 The package must not imply cost-saving cancellation semantics that AWS Lambda does not actually provide.
+
+### 14.1 `reset()` during an active invocation
+
+`reset()` and `abort()` share the same cancellation core — both stop forwarding the active invocation and guarantee that a late-arriving provider result cannot overwrite newer surfaced state. They differ only in the state they leave behind:
+
+- `abort()` moves the surface into an explicit aborted state: `error` (and `streamError` in stream mode) is set to a `LAMBDA_ABORTED` error.
+- `reset()` clears the surface to its initial empty state: outputs return to `null` / empty and **no** error is set.
+
+Calling `reset()` mid-invocation is therefore a silent cancel-and-clear. A result from the cancelled invocation that arrives afterward is discarded; it never overwrites the post-reset state. This is the single decided behavior — `reset()` is not a no-op during an active invocation, and late results do not win.
 
 ## 15. Post-invocation hook contract
 

@@ -49,6 +49,29 @@ describe("LambdaCore", () => {
     expect(core.requestId).toBe("req-stream");
   });
 
+  it("pins logType so the browser cannot request tail logs", async () => {
+    const invoke = vi.fn(async () => ({
+      result: null,
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-log-pinned",
+      logResult: null,
+    }));
+    const provider: ILambdaProvider = { invoke };
+
+    const core = new LambdaCore(undefined, provider);
+    core.setPinPolicy({ pinnedFunctionName: "safe-function", pinnedLogType: "None" });
+
+    // A client request to set Tail is ignored while the policy pins None.
+    core.logType = "Tail";
+    expect(core.logType).toBe("None");
+
+    await core.invoke({ payload: null, logType: "Tail" });
+
+    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ logType: "None" }));
+  });
+
   it("surfaces configuration errors when no provider is attached", async () => {
     const core = new LambdaCore();
     core.setPinPolicy({ pinnedFunctionName: "safe-function" });

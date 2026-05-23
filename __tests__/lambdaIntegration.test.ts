@@ -535,6 +535,70 @@ describe("lambda integration", () => {
     invoke.remove();
   });
 
+  it("streams remote chunks incrementally into lambda-invoke and its lambda-stream child", async () => {
+    const streamInvoker = vi.fn(async (_options, observer) => {
+      for (const chunk of ["Re", "mo", "te"]) {
+        observer.onChunk({ chunk, textDelta: chunk, firstByteLatency: 2 });
+      }
+
+      return {
+        result: { ok: true },
+        statusCode: 200,
+        functionError: null,
+        executedVersion: null,
+        requestId: "req-remote-stream",
+        logResult: null,
+        chunks: ["Re", "mo", "te"],
+        text: "Remote",
+        firstByteLatency: 2,
+      };
+    });
+    const serverCore = bootstrapLambdaServer({
+      providerOptions: { invoker: vi.fn(), streamInvoker },
+      pinPolicy: { pinnedFunctionName: "chat-stream" },
+    });
+    const handler = createLambdaRemoteHandler(serverCore);
+    const remoteFetch = vi.fn(async (input, init) => handler(new Request(String(input), {
+      method: init?.method,
+      headers: init?.headers,
+      body: init?.body as BodyInit,
+    }))) as unknown as typeof fetch;
+
+    const invoke = document.createElement(integrationTagNames.lambdaInvoke) as LambdaInvoke;
+    const stream = document.createElement(integrationTagNames.lambdaStream) as LambdaStream;
+
+    vi.stubGlobal("fetch", remoteFetch);
+
+    try {
+      invoke.setAttribute("function-name", "chat-stream");
+      invoke.setAttribute("mode", "stream");
+      invoke.appendChild(stream);
+      document.body.appendChild(invoke);
+      invoke.attachRemote("https://example.test/lambda");
+      invoke.payload = { prompt: "hi" };
+
+      let parentTextEvents = 0;
+      invoke.addEventListener("lambda-invoke:text-changed", () => parentTextEvents++);
+
+      const response = await invoke.invoke();
+
+      expect(response).toMatchObject({ requestId: "req-remote-stream" });
+      expect(invoke.text).toBe("Remote");
+      expect(invoke.chunks).toEqual(["Re", "mo", "te"]);
+      expect(invoke.done).toBe(true);
+      // One text-changed per streamed chunk proves the chunks arrived as stream
+      // events over the wire, not as a single post-completion replay.
+      expect(parentTextEvents).toBe(3);
+      expect(stream.text).toBe("Remote");
+      expect(stream.chunks).toEqual(["Re", "mo", "te"]);
+      expect(stream.done).toBe(true);
+      expect(stream.streamError).toBeNull();
+    } finally {
+      invoke.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("surfaces a child-local error when lambda-stream has no parent", () => {
     const stream = document.createElement(integrationTagNames.lambdaStream) as LambdaStream;
 
