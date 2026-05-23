@@ -18,7 +18,7 @@ The design intent is documented in [CLAUDE.md](https://github.com/csbc-dev/lambd
 
 Runnable browser examples for Vanilla DOM, React, Vue, and `@wcstack/state` live in the [examples README](https://github.com/csbc-dev/lambda/blob/main/examples/README.md).
 
-They import the local `dist/` build, use a shared mock provider by default, and can be switched to a real remote Core endpoint when you want to test the server-side integration.
+The Vite examples install the local package from the workspace, and the static `@wcstack/state` example reads the local `dist/` build. They use a shared mock provider by default and can be switched to a real remote Core endpoint when you want to test the server-side integration.
 
 ## Install
 

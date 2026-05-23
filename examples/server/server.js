@@ -12,6 +12,7 @@ const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost
   .filter(Boolean));
 const rootDir = fileURLToPath(new URL("..", import.meta.url));
 const staticRoots = new Map([
+  ["/dist/", join(rootDir, "..", "dist")],
   ["/wcstack-state/", join(rootDir, "wcstack-state")],
   ["/shared/", join(rootDir, "shared")],
 ]);

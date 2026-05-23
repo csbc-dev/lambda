@@ -9,7 +9,16 @@ Four runnable browser examples that match the build shape used by `@csbc-dev/aut
 | [`vue/`](vue/) | Vite + Vue + `@wc-bindable/vue` | `useWcBindable` composable around `<lambda-invoke>` |
 | [`wcstack-state/`](wcstack-state/) | Static HTML + CDN `<wcs-state>` | Declarative path and command bindings |
 
-The Vite clients import `@csbc-dev/lambda` from npm, while `wcstack-state/` stays bundler-free and imports the package from a CDN. Every example defaults to a browser-only mock provider and can switch to remote mode through `/api/lambda`.
+The Vite clients and example server use the local package via `file:../..`, while `wcstack-state/` stays bundler-free and reads the local `dist/` build. Every example defaults to a browser-only mock provider and can switch to remote mode through `/api/lambda`.
+
+The example server scripts require Node 20.6+ because they use `node --env-file=...`.
+
+Before running any example, build the workspace package once so the local package exports and `dist/` are available:
+
+```bash
+npm install
+npm run build
+```
 
 ## Run order
 
@@ -17,10 +26,11 @@ Start the shared mock server first if you want to use remote mode:
 
 ```bash
 cd examples/server
-cp .env.example .env
 npm install
 npm run dev                # http://localhost:3000/api/lambda
 ```
+
+`PORT` and `ALLOWED_ORIGINS` already have defaults in `server.js`, so `.env` is optional. Create it from `.env.example` only when you need custom values.
 
 Then pick any Vite client:
 
@@ -30,7 +40,7 @@ npm install
 npm run dev
 ```
 
-For `wcstack-state/`, use either mock mode from any static server, or open it through the example server when you want same-origin remote mode:
+For `wcstack-state/`, use either mock mode from a static server that exposes both the repository root and `/dist/`, or open it through the example server when you want same-origin remote mode and a locally served `/dist/` build:
 
 ```text
 http://localhost:3000/wcstack-state/
