@@ -6,11 +6,12 @@
     <title>@wcstack/state Lambda Example</title>
     <link rel="stylesheet" href="../shared/demo.css">
     <script type="module">
-      import { bootstrapLambda } from "../../dist/index.js";
-      import { createMockLambdaProvider, formatExampleError, resolveRemoteEndpoint } from "../shared/mockLambdaProvider.js?v=2";
+      import { bootstrapLambda, LambdaRemoteProvider } from "https://esm.sh/@csbc-dev/lambda@0.1.0";
+      import { createMockLambdaProvider, formatExampleError, resolveRemoteEndpoint } from "../shared/mockLambdaProvider.js";
 
       bootstrapLambda();
       globalThis.createMockLambdaProvider = createMockLambdaProvider;
+      globalThis.createLambdaRemoteProvider = (url) => new LambdaRemoteProvider({ url, fetch: globalThis.fetch.bind(globalThis) });
       globalThis.formatLambdaExampleError = formatExampleError;
       globalThis.resolveLambdaRemoteEndpoint = resolveRemoteEndpoint;
       await import("https://esm.run/@wcstack/state@1.10.0/auto");
@@ -75,7 +76,7 @@
               const invoke = document.querySelector("#wcs-lambda");
               if (!invoke) return;
               if (this.useRemote) {
-                invoke.attachRemote(globalThis.resolveLambdaRemoteEndpoint(this.remoteUrl));
+                invoke.setProvider(globalThis.createLambdaRemoteProvider(globalThis.resolveLambdaRemoteEndpoint(this.remoteUrl)));
               } else {
                 invoke.setProvider(globalThis.createMockLambdaProvider());
               }

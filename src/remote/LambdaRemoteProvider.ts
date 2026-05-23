@@ -20,7 +20,7 @@ export class LambdaRemoteProvider implements ILambdaProvider {
     }
 
     this.#url = options.url;
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    this.#fetch = options.fetch ?? globalThis.fetch?.bind(globalThis);
     this.#headers = options.headers ?? {};
 
     if (!this.#fetch) {

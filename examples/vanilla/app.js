@@ -1,5 +1,5 @@
-import { bootstrapLambda } from "../../dist/index.js";
-import { createMockLambdaProvider, formatExampleError, formatValue, parsePayloadText, resolveRemoteEndpoint } from "../shared/mockLambdaProvider.js?v=2";
+import { bootstrapLambda } from "@csbc-dev/lambda";
+import { createMockLambdaProvider, formatExampleError, formatValue, parsePayloadText, resolveRemoteEndpoint } from "../shared/mockLambdaProvider.js";
 
 bootstrapLambda();
 

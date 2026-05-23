@@ -21,7 +21,7 @@ export class LambdaRemoteProvider {
             throw toLambdaError(new Error("Remote Lambda core URL is required"), "LAMBDA_CONFIG_ERROR");
         }
         __classPrivateFieldSet(this, _LambdaRemoteProvider_url, options.url, "f");
-        __classPrivateFieldSet(this, _LambdaRemoteProvider_fetch, options.fetch ?? globalThis.fetch, "f");
+        __classPrivateFieldSet(this, _LambdaRemoteProvider_fetch, options.fetch ?? globalThis.fetch?.bind(globalThis), "f");
         __classPrivateFieldSet(this, _LambdaRemoteProvider_headers, options.headers ?? {}, "f");
         if (!__classPrivateFieldGet(this, _LambdaRemoteProvider_fetch, "f")) {
             throw toLambdaError(new Error("fetch is not available for LambdaRemoteProvider"), "LAMBDA_CONFIG_ERROR");

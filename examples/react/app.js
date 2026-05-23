@@ -1,66 +1,45 @@
-import React, { useEffect, useRef, useState } from "https://esm.sh/react@18.3.1";
-import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
-import { bootstrapLambda } from "../../dist/index.js";
-import { createMockLambdaProvider, formatExampleError, formatValue, parsePayloadText, resolveRemoteEndpoint } from "../shared/mockLambdaProvider.js?v=2";
+import React, { useEffect, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { useWcBindable } from "@wc-bindable/react";
+import { bootstrapLambda } from "@csbc-dev/lambda";
+import { createMockLambdaProvider, formatExampleError, formatValue, parsePayloadText, resolveRemoteEndpoint } from "../shared/mockLambdaProvider.js";
 
 bootstrapLambda();
 
 const h = React.createElement;
 
-function snapshot(element) {
-  return {
-    invoking: element?.invoking ?? false,
-    streaming: element?.streaming ?? false,
-    result: element?.result ?? null,
-    error: element?.error ?? null,
-    requestId: element?.requestId ?? null,
-    duration: element?.duration ?? null,
-    text: element?.text ?? "",
-  };
-}
-
 function App() {
-  const lambdaRef = useRef(null);
+  const lambdaElement = useRef(null);
+  const [bindLambdaRef, lambdaValues] = useWcBindable();
   const [functionName, setFunctionName] = useState("demo-function");
   const [mode, setMode] = useState("buffered");
   const [remoteUrl, setRemoteUrl] = useState("/api/lambda");
   const [useRemote, setUseRemote] = useState(false);
   const [payloadText, setPayloadText] = useState('{"name":"Ada","task":"react example"}');
   const [localError, setLocalError] = useState(null);
-  const [state, setState] = useState(() => snapshot(null));
+
+  const setLambdaRef = (element) => {
+    lambdaElement.current = element;
+    bindLambdaRef(element);
+  };
 
   useEffect(() => {
-    const element = lambdaRef.current;
-    element.setProvider(createMockLambdaProvider());
-    setState(snapshot(element));
-
-    const update = () => setState(snapshot(element));
-    const events = [
-      "lambda-invoke:invoking-changed",
-      "lambda-invoke:streaming-changed",
-      "lambda-invoke:result-changed",
-      "lambda-invoke:error",
-      "lambda-invoke:request-id-changed",
-      "lambda-invoke:duration-changed",
-      "lambda-invoke:text-changed",
-      "lambda-invoke:stream-error",
-    ];
-
-    for (const eventName of events) {
-      element.addEventListener(eventName, update);
+    const element = lambdaElement.current;
+    if (!element) {
+      return;
     }
 
-    return () => {
-      for (const eventName of events) {
-        element.removeEventListener(eventName, update);
-      }
-    };
+    element.setProvider(createMockLambdaProvider());
   }, []);
 
   const invoke = async (event) => {
     event.preventDefault();
-    const element = lambdaRef.current;
+    const element = lambdaElement.current;
     setLocalError(null);
+
+    if (!element) {
+      return;
+    }
 
     try {
       element.functionName = functionName;
@@ -77,18 +56,16 @@ function App() {
     } catch (error) {
       setLocalError(formatExampleError(error));
     }
-
-    setState(snapshot(element));
   };
 
   return h("main", { className: "shell" },
     h("header", { className: "masthead" },
       h("div", null,
         h("p", { className: "eyebrow" }, "React"),
-        h("h1", null, "Lambda invoke through refs"),
-        h("p", { className: "summary" }, "React keeps view state in hooks while the Web Component owns invocation state and async command behavior."),
+        h("h1", null, "Lambda invoke with useWcBindable"),
+        h("p", { className: "summary" }, "React observes the custom element's wc-bindable surface while LambdaCore owns invocation state and async command behavior."),
       ),
-      h("span", { className: "badge" }, "custom element bridge"),
+      h("span", { className: "badge" }, "@wc-bindable/react"),
     ),
     h("section", { className: "workspace" },
       h("form", { className: "panel controls", onSubmit: invoke },
@@ -106,25 +83,25 @@ function App() {
         ),
         h("label", null, "Payload", h("textarea", { value: payloadText, onChange: (event) => setPayloadText(event.target.value) })),
         h("div", { className: "actions" },
-          h("button", { type: "submit", disabled: state.invoking }, "Invoke"),
-          h("button", { className: "secondary", type: "button", onClick: () => lambdaRef.current.abort() }, "Abort"),
-          h("button", { className: "secondary", type: "button", onClick: () => { setLocalError(null); lambdaRef.current.reset(); } }, "Reset"),
+          h("button", { type: "submit", disabled: lambdaValues.invoking }, "Invoke"),
+          h("button", { className: "secondary", type: "button", onClick: () => lambdaElement.current?.abort() }, "Abort"),
+          h("button", { className: "secondary", type: "button", onClick: () => { setLocalError(null); lambdaElement.current?.reset(); } }, "Reset"),
         ),
       ),
       h("section", { className: "panel" },
         h("div", { className: "stats" },
-          h("div", { className: "stat" }, h("span", null, "Status"), h("strong", null, state.invoking ? "invoking" : state.streaming ? "streaming" : "ready")),
-          h("div", { className: "stat" }, h("span", null, "Request"), h("strong", null, state.requestId ?? "-")),
-          h("div", { className: "stat" }, h("span", null, "Duration"), h("strong", null, state.duration === null ? "-" : `${Math.round(state.duration)}ms`)),
+          h("div", { className: "stat" }, h("span", null, "Status"), h("strong", null, lambdaValues.invoking ? "invoking" : lambdaValues.streaming ? "streaming" : "ready")),
+          h("div", { className: "stat" }, h("span", null, "Request"), h("strong", null, lambdaValues.requestId ?? "-")),
+          h("div", { className: "stat" }, h("span", null, "Duration"), h("strong", null, lambdaValues.duration == null ? "-" : `${Math.round(lambdaValues.duration)}ms`)),
         ),
         h("div", { className: "output-grid" },
-          h("pre", null, formatValue(state.result)),
-          h("pre", null, state.text || "stream text will appear here"),
-          h("pre", { className: "error" }, localError ?? (state.error ? `${state.error.code}: ${state.error.message}` : "no error")),
+          h("pre", null, formatValue(lambdaValues.result)),
+          h("pre", null, lambdaValues.text || "stream text will appear here"),
+          h("pre", { className: "error" }, localError ?? (lambdaValues.error ? `${lambdaValues.error.code}: ${lambdaValues.error.message}` : "no error")),
         ),
       ),
     ),
-    h("lambda-invoke", { ref: lambdaRef, mode }, h("lambda-stream")),
+    h("lambda-invoke", { ref: setLambdaRef, mode }, h("lambda-stream")),
   );
 }
 

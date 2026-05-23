@@ -54,16 +54,16 @@
         <div>
           <p class="eyebrow">Examples</p>
           <h1>@csbc-dev/lambda</h1>
-          <p class="summary">Four ways to drive the same Lambda custom elements. Each page uses a mock provider by default and can be switched to a server-owned remote Core endpoint.</p>
+          <p class="summary">Four ways to drive the same Lambda custom elements. Vite clients and a shared mock server follow the same example shape as @csbc-dev/auth0.</p>
         </div>
-        <span class="badge">build first: npm run build</span>
+        <span class="badge">server first for remote mode</span>
       </header>
 
       <nav class="example-list" aria-label="Example pages">
-        <a class="example-link" href="./vanilla/"><strong>Vanilla</strong><span>Plain DOM events and custom-element properties.</span></a>
-        <a class="example-link" href="./react/"><strong>React</strong><span>Refs bridge React state to the invocation element.</span></a>
-        <a class="example-link" href="./vue/"><strong>Vue</strong><span>Render functions mirror element events into reactive state.</span></a>
-        <a class="example-link" href="./wcstack-state/"><strong>@wcstack/state</strong><span>Path bindings and command tokens drive the element.</span></a>
+        <a class="example-link" href="./vanilla/"><strong>Vanilla</strong><span>Vite client with plain DOM events and custom-element properties.</span></a>
+        <a class="example-link" href="./react/"><strong>React</strong><span>Vite client with @wc-bindable/react observing the invocation element.</span></a>
+        <a class="example-link" href="./vue/"><strong>Vue</strong><span>Vite client with @wc-bindable/vue observing the invocation element.</span></a>
+        <a class="example-link" href="./wcstack-state/"><strong>@wcstack/state</strong><span>Static page with path bindings and command tokens.</span></a>
       </nav>
     </main>
   </body>
