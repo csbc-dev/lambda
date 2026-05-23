@@ -1,0 +1,47 @@
+{
+  "name": "@csbc-dev/lambda",
+  "version": "0.1.0",
+  "description": "Declarative AWS Lambda invocation components for Web Components. Remote-first, CSBC-shaped, with parent-child streaming projections.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "SPEC.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "tsc --noEmit"
+  },
+  "keywords": [
+    "web-components",
+    "lambda",
+    "aws",
+    "wc-bindable",
+    "declarative",
+    "framework-agnostic",
+    "csbc"
+  ],
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "author": "mogera551",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/csbc-dev/lambda.git"
+  },
+  "license": "MIT"
+}

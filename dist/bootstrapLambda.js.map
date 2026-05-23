@@ -1,0 +1,1 @@
+{"version":3,"file":"bootstrapLambda.js","sourceRoot":"","sources":["../src/bootstrapLambda.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,SAAS,EAAE,MAAM,aAAa,CAAC;AACxC,OAAO,EAAE,kBAAkB,EAAE,MAAM,yBAAyB,CAAC;AAG7D,MAAM,UAAU,eAAe,CAAC,MAAwB;IACtD,IAAI,MAAM,EAAE,CAAC;QACX,SAAS,CAAC,MAAM,CAAC,CAAC;IACpB,CAAC;IAED,kBAAkB,EAAE,CAAC;AACvB,CAAC"}

@@ -1,0 +1,1 @@
+{"version":3,"file":"AwsLambdaProvider.js","sourceRoot":"","sources":["../../src/providers/AwsLambdaProvider.ts"],"names":[],"mappings":"AAEA,MAAM,OAAO,iBAAiB;IAC5B,KAAK,CAAC,MAAM,CAAC,QAA6B;QACxC,MAAM,IAAI,KAAK,CAAC,6DAA6D,CAAC,CAAC;IACjF,CAAC;CACF"}

@@ -1,0 +1,1 @@
+{"version":3,"file":"AwsLambdaProvider.d.ts","sourceRoot":"","sources":["../../src/providers/AwsLambdaProvider.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,eAAe,EAAE,mBAAmB,EAAE,oBAAoB,EAAE,MAAM,aAAa,CAAC;AAE9F,qBAAa,iBAAkB,YAAW,eAAe;IACjD,MAAM,CAAC,QAAQ,EAAE,mBAAmB,GAAG,OAAO,CAAC,oBAAoB,CAAC;CAG3E"}
