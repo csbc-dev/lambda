@@ -46,7 +46,6 @@
             text: "",
             streamError: null,
             localError: null,
-            _cleanup: null,
 
             get parsedPayload() {
               const value = this.payloadText.trim();
@@ -72,8 +71,12 @@
               return this.duration === null ? "-" : `${Math.round(this.duration)}ms`;
             },
 
+            getInvokeElement() {
+              return this.$stateElement?.getRootNode()?.querySelector("#wcs-lambda") ?? null;
+            },
+
             configureProvider() {
-              const invoke = document.querySelector("#wcs-lambda");
+              const invoke = this.getInvokeElement();
               if (!invoke) return;
               if (this.useRemote) {
                 invoke.setProvider(globalThis.createLambdaRemoteProvider(globalThis.resolveLambdaRemoteEndpoint(this.remoteUrl)));
@@ -98,46 +101,8 @@
               this.localError = null;
               this.$command.resetLambda.emit();
             },
-            syncFromElement() {
-              const invoke = document.querySelector("#wcs-lambda");
-              if (!invoke) return;
-              this.invoking = invoke.invoking;
-              this.streaming = invoke.streaming;
-              this.result = invoke.result;
-              this.error = invoke.error;
-              this.requestId = invoke.requestId;
-              this.duration = invoke.duration;
-              this.text = invoke.text;
-              this.streamError = invoke.streamError;
-            },
             $connectedCallback() {
-              const invoke = document.querySelector("#wcs-lambda");
-              if (!invoke) return;
               this.configureProvider();
-              const sync = () => this.syncFromElement();
-              const events = [
-                "lambda-invoke:invoking-changed",
-                "lambda-invoke:streaming-changed",
-                "lambda-invoke:result-changed",
-                "lambda-invoke:error",
-                "lambda-invoke:request-id-changed",
-                "lambda-invoke:duration-changed",
-                "lambda-invoke:text-changed",
-                "lambda-invoke:stream-error",
-              ];
-              for (const eventName of events) {
-                invoke.addEventListener(eventName, sync);
-              }
-              this._cleanup = () => {
-                for (const eventName of events) {
-                  invoke.removeEventListener(eventName, sync);
-                }
-              };
-              sync();
-            },
-            $disconnectedCallback() {
-              this._cleanup?.();
-              this._cleanup = null;
             },
           };
         </script>
@@ -178,7 +143,7 @@
         </section>
       </section>
 
-      <lambda-invoke id="wcs-lambda" data-wcs="functionName: functionName; mode: mode; payload: parsedPayload; command.invoke: $command.invokeLambda; command.abort: $command.abortLambda; command.reset: $command.resetLambda">
+      <lambda-invoke id="wcs-lambda" data-wcs="functionName: functionName; mode: mode; payload: parsedPayload; invoking: invoking; streaming: streaming; result: result; error: error; requestId: requestId; duration: duration; text: text; streamError: streamError; command.invoke: $command.invokeLambda; command.abort: $command.abortLambda; command.reset: $command.resetLambda">
         <lambda-stream></lambda-stream>
       </lambda-invoke>
     </main>
