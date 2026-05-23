@@ -24,7 +24,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "tsc --noEmit"
+    "test": "vitest run __tests__",
+    "test:watch": "vitest __tests__",
+    "test:types": "tsc --noEmit"
   },
   "keywords": [
     "web-components",
@@ -39,7 +41,9 @@
     "@aws-sdk/client-lambda": "^3.937.0"
   },
   "devDependencies": {
+    "happy-dom": "^20.8.3",
     "typescript": "^5.9.3"
+    ,"vitest": "^4.0.18"
   },
   "author": "mogera551",
   "repository": {
