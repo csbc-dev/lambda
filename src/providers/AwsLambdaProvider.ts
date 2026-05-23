@@ -133,6 +133,10 @@ export class AwsLambdaProvider implements ILambdaProvider {
     };
 
     for await (const event of response.EventStream ?? []) {
+      if (options.signal?.aborted) {
+        break;
+      }
+
       if (event.PayloadChunk) {
         const chunk = textDecoder.decode(event.PayloadChunk.Payload ?? new Uint8Array());
         if (firstByteLatency === null) {

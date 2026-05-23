@@ -59,7 +59,7 @@ export class LambdaStream extends HTMLElementBase {
     const tagName = getConfig().tagNames.lambdaInvoke;
     const candidate = this.closest(tagName);
 
-    if (!(candidate instanceof HTMLElement)) {
+    if (!(candidate instanceof HTMLElement) || !isLambdaInvokeHost(candidate)) {
       this.#setStreamError(raiseError(this, "lambda-stream:error", new Error("lambda-stream requires a parent lambda-invoke"), "LAMBDA_PARENT_REQUIRED"));
       return;
     }
@@ -167,4 +167,10 @@ export class LambdaStream extends HTMLElementBase {
 
 function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isLambdaInvokeHost(value: HTMLElement): value is LambdaInvoke {
+  return typeof (value as Partial<LambdaInvoke>).invoke === "function"
+    && Array.isArray((value as Partial<LambdaInvoke>).chunks)
+    && typeof (value as Partial<LambdaInvoke>).text === "string";
 }

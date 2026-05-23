@@ -1,7 +1,7 @@
 export type LambdaMode = "buffered" | "stream";
 
 export interface LambdaError {
-  code: string;
+  code: LambdaErrorCode;
   message: string;
   cause?: unknown;
 }
@@ -9,6 +9,7 @@ export interface LambdaError {
 export type LambdaErrorCode =
   | "LAMBDA_ERROR"
   | "LAMBDA_ABORTED"
+  | "LAMBDA_AUTH_ERROR"
   | "LAMBDA_CONFIG_ERROR"
   | "LAMBDA_INPUT_ERROR"
   | "LAMBDA_PARENT_REQUIRED"

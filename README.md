@@ -67,15 +67,23 @@ Browser components can attach to a server-owned Core through the fetch-backed re
 ```ts
 import { createLambdaRemoteHandler, bootstrapLambdaServer } from "@csbc-dev/lambda/server";
 
-const core = bootstrapLambdaServer({
+const createCore = () => bootstrapLambdaServer({
 	pinPolicy: {
 		pinnedFunctionName: "my-safe-function",
 		pinnedQualifier: "live",
 	},
 });
 
-export const handleLambdaRequest = createLambdaRemoteHandler(core);
+export const handleLambdaRequest = createLambdaRemoteHandler(() => createCore(), {
+	authenticate: (request) => request.headers.get("authorization") === `Bearer ${process.env.LAMBDA_PROXY_TOKEN}`,
+});
 ```
+
+Remote endpoints must be protected by application authentication or by the `authenticate` hook shown above. The handler validates the remote command shape, but it does not choose an authorization policy for your application.
+
+Pass a Core factory, as shown above, when one endpoint may receive concurrent requests. A single `LambdaCore` instance intentionally aborts its previous invocation when a new one starts, which is useful for one addressable invocation surface but not for unrelated HTTP requests.
+
+If you intentionally pass a shared Core instance, the handler rejects overlapping requests with `409` and aborts a stuck shared invocation after `sharedCoreTimeoutMs` (default: `300000`) so the endpoint can recover.
 
 On the browser side, attach the custom element to that endpoint.
 
@@ -89,6 +97,8 @@ await invoke?.invoke();
 ```
 
 The browser may still set `functionName` or `qualifier` properties for deployments that explicitly allow it, but the server Core's pin policy is authoritative.
+
+The fetch-backed remote provider returns a single JSON response. In stream mode it replays any returned `chunks` into the stream observer after the server invocation completes; it is not a real-time browser streaming transport. Use a custom provider or future streaming transport when first-byte delivery to the browser matters.
 
 ## Buffered invoke example
 

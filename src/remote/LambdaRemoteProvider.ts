@@ -38,6 +38,7 @@ export class LambdaRemoteProvider implements ILambdaProvider {
       mode: "stream",
     });
 
+    // The fetch remote transport returns one JSON response, so stream chunks are replayed after the server invocation completes.
     for (const [index, chunk] of (response.chunks ?? []).entries()) {
       observer.onChunk({
         chunk,
@@ -66,10 +67,21 @@ export class LambdaRemoteProvider implements ILambdaProvider {
       signal,
     });
 
-    const payload = await response.json() as LambdaRemoteInvokeResponse;
+    if (!response.ok) {
+      const statusText = response.statusText ? ` ${response.statusText}` : "";
+      throw toLambdaError(new Error(`Remote Lambda invoke failed with HTTP ${response.status}${statusText}`), "LAMBDA_PROVIDER_ERROR");
+    }
 
-    if (!response.ok || !payload.ok) {
-      throw toLambdaError(payload.ok ? new Error(`Remote Lambda invoke failed with HTTP ${response.status}`) : payload.error, "LAMBDA_PROVIDER_ERROR");
+    let payload: LambdaRemoteInvokeResponse;
+
+    try {
+      payload = await response.json() as LambdaRemoteInvokeResponse;
+    } catch (error) {
+      throw toLambdaError(new Error(`Remote Lambda invoke returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`), "LAMBDA_PROVIDER_ERROR");
+    }
+
+    if (!payload.ok) {
+      throw toLambdaError(payload.error, "LAMBDA_PROVIDER_ERROR");
     }
 
     return payload.response;

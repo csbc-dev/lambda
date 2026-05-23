@@ -118,6 +118,219 @@ describe("lambda integration", () => {
     }
   });
 
+  it("rejects unauthenticated remote requests before invoking", async () => {
+    const invoker = vi.fn(async () => ({
+      result: { ok: true },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-unauthorized",
+      logResult: null,
+    }));
+    const serverCore = bootstrapLambdaServer({
+      providerOptions: { invoker },
+      pinPolicy: { pinnedFunctionName: "server-owned-function" },
+    });
+    const handler = createLambdaRemoteHandler(serverCore, {
+      authenticate: (request) => request.headers.get("authorization") === "Bearer valid",
+    });
+
+    const response = await handler(new Request("https://example.test/lambda", {
+      method: "POST",
+      body: JSON.stringify({
+        command: "invoke",
+        options: {
+          functionName: "server-owned-function",
+          payload: null,
+          mode: "buffered",
+        },
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body).toMatchObject({
+      ok: false,
+      error: { code: "LAMBDA_AUTH_ERROR" },
+    });
+    expect(invoker).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed remote invocation options before invoking", async () => {
+    const invoker = vi.fn(async () => ({
+      result: { ok: true },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-malformed",
+      logResult: null,
+    }));
+    const serverCore = bootstrapLambdaServer({
+      providerOptions: { invoker },
+      pinPolicy: { pinnedFunctionName: "server-owned-function" },
+    });
+    const handler = createLambdaRemoteHandler(serverCore);
+
+    const response = await handler(new Request("https://example.test/lambda", {
+      method: "POST",
+      body: JSON.stringify({
+        command: "invoke",
+        options: {
+          functionName: 123,
+          mode: "buffered",
+        },
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      ok: false,
+      error: { code: "LAMBDA_INPUT_ERROR" },
+    });
+    expect(invoker).not.toHaveBeenCalled();
+  });
+
+  it("returns normalized JSON when remote core factory fails", async () => {
+    const handler = createLambdaRemoteHandler(() => {
+      throw new Error("tenant config unavailable");
+    });
+
+    const response = await handler(new Request("https://example.test/lambda", {
+      method: "POST",
+      body: JSON.stringify({
+        command: "invoke",
+        options: {
+          functionName: "server-owned-function",
+          payload: null,
+          mode: "buffered",
+        },
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toMatchObject({
+      ok: false,
+      error: {
+        code: "LAMBDA_CONFIG_ERROR",
+        message: "tenant config unavailable",
+      },
+    });
+  });
+
+  it("rejects concurrent requests when a shared remote Core is still active", async () => {
+    let resolveInvoke: (value: {
+      result: unknown;
+      statusCode: number;
+      functionError: null;
+      executedVersion: null;
+      requestId: string;
+      logResult: null;
+    }) => void = () => {};
+    const invoker = vi.fn(async () => new Promise<{
+      result: unknown;
+      statusCode: number;
+      functionError: null;
+      executedVersion: null;
+      requestId: string;
+      logResult: null;
+    }>((resolve) => {
+      resolveInvoke = resolve;
+    }));
+    const serverCore = bootstrapLambdaServer({
+      providerOptions: { invoker },
+      pinPolicy: { pinnedFunctionName: "server-owned-function" },
+    });
+    const handler = createLambdaRemoteHandler(serverCore);
+    const makeRequest = () => new Request("https://example.test/lambda", {
+      method: "POST",
+      body: JSON.stringify({
+        command: "invoke",
+        options: {
+          functionName: "server-owned-function",
+          payload: null,
+          mode: "buffered",
+        },
+      }),
+    });
+
+    const first = handler(makeRequest());
+    const second = await handler(makeRequest());
+    const secondBody = await second.json();
+
+    expect(second.status).toBe(409);
+    expect(secondBody).toMatchObject({
+      ok: false,
+      error: { code: "LAMBDA_CONFIG_ERROR" },
+    });
+
+    resolveInvoke({
+      result: { ok: true },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-shared-core",
+      logResult: null,
+    });
+
+    expect((await first).status).toBe(200);
+  });
+
+  it("times out and releases a stuck shared remote Core", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const invoker = vi.fn(async () => new Promise<never>(() => {}));
+      const serverCore = bootstrapLambdaServer({
+        providerOptions: { invoker },
+        pinPolicy: { pinnedFunctionName: "server-owned-function" },
+      });
+      const handler = createLambdaRemoteHandler(serverCore, { sharedCoreTimeoutMs: 10 });
+      const makeRequest = () => new Request("https://example.test/lambda", {
+        method: "POST",
+        body: JSON.stringify({
+          command: "invoke",
+          options: {
+            functionName: "server-owned-function",
+            payload: null,
+            mode: "buffered",
+          },
+        }),
+      });
+
+      const first = handler(makeRequest());
+      await vi.advanceTimersByTimeAsync(10);
+      const firstResponse = await first;
+      const firstBody = await firstResponse.json();
+
+      expect(firstResponse.status).toBe(504);
+      expect(firstBody).toMatchObject({
+        ok: false,
+        error: { code: "LAMBDA_INVOKE_FAILED" },
+      });
+
+      const second = handler(makeRequest());
+      const overlapping = await handler(makeRequest());
+      expect(overlapping.status).toBe(409);
+      await vi.advanceTimersByTimeAsync(10);
+      await second;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("surfaces policy-denied attribute updates without throwing", () => {
+    const invoke = document.createElement(integrationTagNames.lambdaInvoke) as LambdaInvoke;
+    invoke.setPinPolicy({ allowedFunctionNames: ["safe-function"] });
+
+    expect(() => invoke.setAttribute("function-name", "forbidden-function")).not.toThrow();
+    expect(invoke.functionName).toBe("");
+    expect(invoke.error).toMatchObject({
+      code: "LAMBDA_POLICY_DENIED",
+    });
+  });
+
   it("projects streaming state from lambda-invoke to lambda-stream after bootstrap", async () => {
     const streamInvoker = vi.fn(async (_options, observer) => {
       observer.onChunk({ chunk: "Hel", textDelta: "Hel", firstByteLatency: 4 });

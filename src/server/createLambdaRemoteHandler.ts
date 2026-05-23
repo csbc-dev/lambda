@@ -1,13 +1,28 @@
 import { toLambdaError } from "../raiseError.js";
 import type { LambdaCore } from "../core/LambdaCore.js";
-import type { LambdaInvokeOptions, LambdaRemoteInvokeRequest, LambdaRemoteInvokeResponse } from "../types.js";
+import type { LambdaInvokeOptions, LambdaInvokeResponse, LambdaRemoteInvokeRequest, LambdaRemoteInvokeResponse } from "../types.js";
 
 export type LambdaRemoteHandler = (request: Request) => Promise<Response>;
+export type LambdaRemoteCoreSource = LambdaCore | ((request: Request) => LambdaCore | Promise<LambdaCore>);
+export interface LambdaRemoteHandlerOptions {
+  authenticate?: (request: Request) => boolean | Promise<boolean>;
+  sharedCoreTimeoutMs?: number;
+}
 
-export function createLambdaRemoteHandler(core: LambdaCore): LambdaRemoteHandler {
+export function createLambdaRemoteHandler(coreSource: LambdaRemoteCoreSource, options: LambdaRemoteHandlerOptions = {}): LambdaRemoteHandler {
+  let sharedCoreBusy = false;
+
   return async (request) => {
     if (request.method !== "POST") {
       return Response.json(remoteError(new Error("Method not allowed"), "LAMBDA_CONFIG_ERROR"), { status: 405 });
+    }
+
+    try {
+      if (options.authenticate && !await options.authenticate(request)) {
+        return Response.json(remoteError(new Error("Unauthorized"), "LAMBDA_AUTH_ERROR"), { status: 401 });
+      }
+    } catch (error) {
+      return Response.json(remoteError(error, "LAMBDA_AUTH_ERROR"), { status: 500 });
     }
 
     let body: LambdaRemoteInvokeRequest;
@@ -18,11 +33,40 @@ export function createLambdaRemoteHandler(core: LambdaCore): LambdaRemoteHandler
       return Response.json(remoteError(error, "LAMBDA_INPUT_ERROR"), { status: 400 });
     }
 
-    if (body.command !== "invoke") {
+    if (!isLambdaRemoteInvokeRequest(body)) {
       return Response.json(remoteError(new Error("Unsupported Lambda remote command"), "LAMBDA_INPUT_ERROR"), { status: 400 });
     }
 
-    const response = await core.invoke(body.options as Partial<LambdaInvokeOptions>);
+    let core: LambdaCore;
+
+    try {
+      core = typeof coreSource === "function" ? await coreSource(request) : coreSource;
+    } catch (error) {
+      return Response.json(remoteError(error, "LAMBDA_CONFIG_ERROR"), { status: 500 });
+    }
+
+    if (typeof coreSource !== "function") {
+      if (sharedCoreBusy) {
+        return Response.json(remoteError(new Error("Shared LambdaCore is already handling an invocation; pass a Core factory for concurrent requests"), "LAMBDA_CONFIG_ERROR"), { status: 409 });
+      }
+
+      sharedCoreBusy = true;
+    }
+
+    let response;
+
+    try {
+      const invokePromise = core.invoke(body.options as Partial<LambdaInvokeOptions>);
+      response = typeof coreSource === "function"
+        ? await invokePromise
+        : await withSharedCoreTimeout(core, invokePromise, options.sharedCoreTimeoutMs ?? 300_000);
+    } catch (error) {
+      return Response.json(remoteError(error, "LAMBDA_INVOKE_FAILED"), { status: isTimeoutError(error) ? 504 : 500 });
+    } finally {
+      if (typeof coreSource !== "function") {
+        sharedCoreBusy = false;
+      }
+    }
 
     if (!response) {
       return Response.json({
@@ -36,6 +80,71 @@ export function createLambdaRemoteHandler(core: LambdaCore): LambdaRemoteHandler
       response,
     } satisfies LambdaRemoteInvokeResponse);
   };
+}
+
+async function withSharedCoreTimeout(
+  core: LambdaCore,
+  invokePromise: Promise<LambdaInvokeResponse | undefined>,
+  timeoutMs: number,
+): Promise<LambdaInvokeResponse | undefined> {
+  if (timeoutMs <= 0) {
+    return invokePromise;
+  }
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      core.abort();
+      reject(new LambdaRemoteTimeoutError(`Shared LambdaCore invocation timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([invokePromise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+class LambdaRemoteTimeoutError extends Error {}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof LambdaRemoteTimeoutError;
+}
+
+function isLambdaRemoteInvokeRequest(value: unknown): value is LambdaRemoteInvokeRequest {
+  if (!isRecord(value) || value.command !== "invoke" || !isRecord(value.options)) {
+    return false;
+  }
+
+  const { options } = value;
+  return hasString(options, "functionName")
+    && hasOptionalStringOrNull(options, "qualifier")
+    && hasOptionalStringOrNull(options, "clientContext")
+    && hasOptionalLogType(options)
+    && hasOptionalMode(options);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasString(value: Record<string, unknown>, key: string): boolean {
+  return typeof value[key] === "string";
+}
+
+function hasOptionalStringOrNull(value: Record<string, unknown>, key: string): boolean {
+  return value[key] === undefined || value[key] === null || typeof value[key] === "string";
+}
+
+function hasOptionalLogType(value: Record<string, unknown>): boolean {
+  return value.logType === undefined || value.logType === "None" || value.logType === "Tail";
+}
+
+function hasOptionalMode(value: Record<string, unknown>): boolean {
+  return value.mode === undefined || value.mode === "buffered" || value.mode === "stream";
 }
 
 function remoteError(error: unknown, code: Parameters<typeof toLambdaError>[1]): LambdaRemoteInvokeResponse {

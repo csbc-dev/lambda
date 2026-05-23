@@ -253,10 +253,46 @@ describe("AwsLambdaProvider", () => {
       chunks: [],
     });
   });
+
+  it("stops processing AWS response stream chunks after abort", async () => {
+    const controller = new AbortController();
+    const send = vi.fn(async () => ({
+      StatusCode: 200,
+      ExecutedVersion: "live",
+      $metadata: { requestId: "req-sdk-stream-abort" },
+      EventStream: abortingAsyncIterable(controller),
+    }));
+    const observer = { onChunk: vi.fn() };
+    const provider = new AwsLambdaProvider({
+      sdkClient: { send },
+      policy: {
+        pinnedFunctionName: "chat-stream",
+      },
+    });
+
+    const response = await provider.invokeStream!({
+      functionName: "ignored",
+      payload: null,
+      mode: "stream",
+      signal: controller.signal,
+    }, observer);
+
+    expect(observer.onChunk).toHaveBeenCalledTimes(1);
+    expect(response.chunks).toEqual(["first"]);
+    expect(response.text).toBe("first");
+  });
 });
 
 async function* asyncIterable<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) {
     yield item;
   }
+}
+
+async function* abortingAsyncIterable(controller: AbortController): AsyncIterable<{
+  PayloadChunk?: { Payload?: Uint8Array };
+}> {
+  yield { PayloadChunk: { Payload: new TextEncoder().encode("first") } };
+  controller.abort();
+  yield { PayloadChunk: { Payload: new TextEncoder().encode("second") } };
 }

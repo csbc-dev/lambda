@@ -125,7 +125,9 @@ describe("LambdaCore", () => {
     expect(signal?.aborted).toBe(true);
     expect(core.result).toBeNull();
     expect(core.requestId).toBeNull();
-    expect(core.error).toBeNull();
+    expect(core.error).toMatchObject({
+      code: "LAMBDA_ABORTED",
+    });
     expect(core.invoking).toBe(false);
   });
 
@@ -175,5 +177,167 @@ describe("LambdaCore", () => {
     expect(core.result).toEqual({ value: "second" });
     expect(core.requestId).toBe("req-second");
     expect(core.statusCode).toBe(202);
+  });
+
+  it("aborts stale work before rejecting invalid invocation options", async () => {
+    let firstSignal: AbortSignal | undefined;
+    let resolveFirst: (response: LambdaInvokeResponse) => void = () => {};
+    const provider: ILambdaProvider = {
+      invoke: vi.fn((options) => {
+        firstSignal = options.signal;
+        return new Promise<LambdaInvokeResponse>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }),
+    };
+
+    const core = new LambdaCore(undefined, provider);
+    core.setPinPolicy({ allowedFunctionNames: ["safe-function"] });
+
+    const first = core.invoke({ functionName: "safe-function", payload: "first" });
+    const second = await core.invoke({ functionName: "forbidden-function", payload: "second" });
+
+    expect(second).toBeUndefined();
+    expect(firstSignal?.aborted).toBe(true);
+    expect(provider.invoke).toHaveBeenCalledTimes(1);
+    expect(core.error).toMatchObject({
+      code: "LAMBDA_POLICY_DENIED",
+    });
+    expect(core.invoking).toBe(false);
+
+    resolveFirst({
+      result: { stale: true },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-stale",
+      logResult: null,
+    });
+
+    await first;
+
+    expect(core.result).toBeNull();
+    expect(core.requestId).toBeNull();
+  });
+
+  it("clears streaming state when stream invocation fails", async () => {
+    const provider: ILambdaProvider = {
+      invoke: vi.fn(),
+      invokeStream: vi.fn(async () => {
+        throw new Error("stream failed");
+      }),
+    };
+    const core = new LambdaCore(undefined, provider);
+    core.setPinPolicy({ pinnedFunctionName: "chat-stream" });
+
+    const response = await core.invoke({ payload: null, mode: "stream" });
+
+    expect(response).toBeUndefined();
+    expect(core.streaming).toBe(false);
+    expect(core.streamError).toMatchObject({
+      code: "LAMBDA_INVOKE_FAILED",
+    });
+  });
+
+  it("surfaces Lambda function errors on streamError in stream mode", async () => {
+    const provider: ILambdaProvider = {
+      invoke: vi.fn(),
+      invokeStream: vi.fn(async () => ({
+        result: { errorMessage: "boom" },
+        statusCode: 200,
+        functionError: "Unhandled",
+        executedVersion: null,
+        requestId: "req-stream-function-error",
+        logResult: null,
+        chunks: [],
+        text: "",
+        firstByteLatency: null,
+      })),
+    };
+    const core = new LambdaCore(undefined, provider);
+    core.setPinPolicy({ pinnedFunctionName: "chat-stream" });
+
+    await core.invoke({ payload: null, mode: "stream" });
+
+    expect(core.error).toMatchObject({
+      code: "LAMBDA_FUNCTION_ERROR",
+    });
+    expect(core.streamError).toMatchObject({
+      code: "LAMBDA_FUNCTION_ERROR",
+    });
+  });
+
+  it("does not mark an aborted stream invocation as done", async () => {
+    let resolveStream: (response: LambdaInvokeResponse) => void = () => {};
+    const provider: ILambdaProvider = {
+      invoke: vi.fn(),
+      invokeStream: vi.fn((_options, observer) => {
+        observer.onChunk({ chunk: "partial", textDelta: "partial", firstByteLatency: 1 });
+        return new Promise<LambdaInvokeResponse>((resolve) => {
+          resolveStream = resolve;
+        });
+      }),
+    };
+    const core = new LambdaCore(undefined, provider);
+    core.setPinPolicy({ pinnedFunctionName: "chat-stream" });
+
+    const invokePromise = core.invoke({ payload: null, mode: "stream" });
+
+    core.abort();
+    resolveStream({
+      result: "partial",
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-aborted-stream",
+      logResult: null,
+      chunks: ["partial"],
+      text: "partial",
+      firstByteLatency: 1,
+    });
+
+    await invokePromise;
+
+    expect(core.streaming).toBe(false);
+    expect(core.done).toBe(false);
+    expect(core.streamError).toMatchObject({
+      code: "LAMBDA_ABORTED",
+    });
+  });
+
+  it("reset aborts active work and suppresses late results", async () => {
+    let signal: AbortSignal | undefined;
+    let resolveInvoke: (response: LambdaInvokeResponse) => void = () => {};
+    const provider: ILambdaProvider = {
+      invoke: vi.fn((options) => {
+        signal = options.signal;
+        return new Promise<LambdaInvokeResponse>((resolve) => {
+          resolveInvoke = resolve;
+        });
+      }),
+    };
+
+    const core = new LambdaCore(undefined, provider);
+    core.setPinPolicy({ pinnedFunctionName: "safe-function" });
+
+    const invokePromise = core.invoke({ payload: { ok: true } });
+
+    core.reset();
+    resolveInvoke({
+      result: { stale: true },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-reset-stale",
+      logResult: null,
+    });
+
+    await invokePromise;
+
+    expect(signal?.aborted).toBe(true);
+    expect(core.invoking).toBe(false);
+    expect(core.result).toBeNull();
+    expect(core.requestId).toBeNull();
+    expect(core.error).toBeNull();
   });
 });

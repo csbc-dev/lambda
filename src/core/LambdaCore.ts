@@ -73,7 +73,6 @@ export class LambdaCore extends EventTarget {
   #done = false;
   #firstByteLatency: number | null = null;
   #streamError: LambdaError | null = null;
-  #aborted = false;
   #activeInvocationId = 0;
   #activeController: AbortController | null = null;
 
@@ -84,13 +83,13 @@ export class LambdaCore extends EventTarget {
   }
 
   get functionName(): string { return this.#functionName; }
-  set functionName(value: string) { this.#functionName = resolveFunctionName(value, this.#pinPolicy); }
+  set functionName(value: string) { this.#trySetFunctionName(value); }
 
   get payload(): unknown { return this.#payload; }
   set payload(value: unknown) { this.#payload = value; }
 
   get qualifier(): string | null { return this.#qualifier; }
-  set qualifier(value: string | null) { this.#qualifier = resolveQualifier(value, this.#pinPolicy); }
+  set qualifier(value: string | null) { this.#trySetQualifier(value); }
 
   get clientContext(): string | null { return this.#clientContext; }
   set clientContext(value: string | null) { this.#clientContext = value; }
@@ -135,26 +134,49 @@ export class LambdaCore extends EventTarget {
     this.#qualifier = resolveQualifier(this.#qualifier, this.#pinPolicy);
   }
 
-  async invoke(options: Partial<LambdaInvokeOptions> = {}): Promise<LambdaInvokeResponse | undefined> {
-    if (options.functionName !== undefined) this.functionName = options.functionName;
-    if (options.payload !== undefined) this.payload = options.payload;
-    if (options.qualifier !== undefined) this.qualifier = options.qualifier ?? null;
-    if (options.clientContext !== undefined) this.clientContext = options.clientContext ?? null;
-    if (options.logType !== undefined) this.logType = options.logType;
-    if (options.mode !== undefined) this.mode = options.mode;
+  #trySetFunctionName(value: string): boolean {
+    try {
+      this.#functionName = resolveFunctionName(value, this.#pinPolicy);
+      return true;
+    } catch (error) {
+      this.#setError(toLambdaError(error, "LAMBDA_POLICY_DENIED"));
+      return false;
+    }
+  }
 
+  #trySetQualifier(value: string | null): boolean {
+    try {
+      this.#qualifier = resolveQualifier(value, this.#pinPolicy);
+      return true;
+    } catch (error) {
+      this.#setError(toLambdaError(error, "LAMBDA_POLICY_DENIED"));
+      return false;
+    }
+  }
+
+  async invoke(options: Partial<LambdaInvokeOptions> = {}): Promise<LambdaInvokeResponse | undefined> {
     this.#activeController?.abort();
 
     const invocationId = ++this.#activeInvocationId;
     const controller = new AbortController();
     this.#activeController = controller;
-    this.#aborted = false;
     this.#setInvoking(true);
     this.#clearOutputs();
 
     const startedAt = now();
 
     try {
+      if (options.functionName !== undefined && !this.#trySetFunctionName(options.functionName)) {
+        return undefined;
+      }
+      if (options.payload !== undefined) this.payload = options.payload;
+      if (options.qualifier !== undefined && !this.#trySetQualifier(options.qualifier ?? null)) {
+        return undefined;
+      }
+      if (options.clientContext !== undefined) this.clientContext = options.clientContext ?? null;
+      if (options.logType !== undefined) this.logType = options.logType;
+      if (options.mode !== undefined) this.mode = options.mode;
+
       if (!this.#provider) {
         throw new Error("No Lambda provider configured");
       }
@@ -190,10 +212,14 @@ export class LambdaCore extends EventTarget {
       this.#setResult(response.result ?? null);
 
       if (response.functionError) {
-        this.#setError(toLambdaError(
+        const normalized = toLambdaError(
           new Error(`Lambda function returned ${response.functionError}`),
           "LAMBDA_FUNCTION_ERROR",
-        ));
+        );
+        this.#setError(normalized);
+        if (this.#mode === "stream") {
+          this.#setStreamError(normalized);
+        }
       }
 
       if (this.#mode === "stream" && !this.#provider.invokeStream) {
@@ -219,6 +245,7 @@ export class LambdaCore extends EventTarget {
       );
       this.#setError(normalized);
       if (this.#mode === "stream") {
+        this.#setStreaming(false);
         this.#setStreamError(normalized);
       }
       return undefined;
@@ -243,6 +270,11 @@ export class LambdaCore extends EventTarget {
       },
     });
 
+    if (!this.#isCurrentInvocation(invocationId) || options.signal?.aborted) {
+      this.#setStreaming(false);
+      return response;
+    }
+
     this.#setDone(true);
     this.#setStreaming(false);
     return response;
@@ -260,16 +292,25 @@ export class LambdaCore extends EventTarget {
   }
 
   abort(): void {
-    this.#aborted = true;
+    const hadActiveInvocation = this.#activeController !== null || this.#invoking || this.#streaming;
     this.#activeInvocationId++;
     this.#activeController?.abort();
     this.#activeController = null;
+    if (hadActiveInvocation) {
+      const abortedError = { code: "LAMBDA_ABORTED", message: "Invocation was aborted" } as const;
+      this.#setError(abortedError);
+      if (this.#mode === "stream") {
+        this.#setStreamError(abortedError);
+      }
+    }
     this.#setInvoking(false);
     this.#setStreaming(false);
   }
 
   reset(): void {
-    this.#aborted = false;
+    this.#activeInvocationId++;
+    this.#activeController?.abort();
+    this.#activeController = null;
     this.#clearOutputs();
     this.#setInvoking(false);
   }
@@ -291,21 +332,21 @@ export class LambdaCore extends EventTarget {
     this.#setStreamError(null);
   }
 
-  #setInvoking(value: boolean): void { this.#invoking = value; this.#dispatch("lambda-invoke:invoking-changed", value); }
-  #setResult(value: unknown): void { this.#result = value; this.#dispatch("lambda-invoke:result-changed", value); }
-  #setError(value: LambdaError | null): void { this.#error = value; this.#dispatch("lambda-invoke:error", value); }
-  #setDuration(value: number | null): void { this.#duration = value; this.#dispatch("lambda-invoke:duration-changed", value); }
-  #setRequestId(value: string | null): void { this.#requestId = value; this.#dispatch("lambda-invoke:request-id-changed", value); }
-  #setStatusCode(value: number | null): void { this.#statusCode = value; this.#dispatch("lambda-invoke:status-code-changed", value); }
-  #setFunctionError(value: string | null): void { this.#functionError = value; this.#dispatch("lambda-invoke:function-error-changed", value); }
-  #setExecutedVersion(value: string | null): void { this.#executedVersion = value; this.#dispatch("lambda-invoke:executed-version-changed", value); }
-  #setLogResult(value: string | null): void { this.#logResult = value; this.#dispatch("lambda-invoke:log-result-changed", value); }
-  #setStreaming(value: boolean): void { this.#streaming = value; this.#dispatch("lambda-invoke:streaming-changed", value); }
-  #setChunks(value: string[]): void { this.#chunks = [...value]; this.#dispatch("lambda-invoke:chunks-changed", this.chunks); }
-  #setText(value: string): void { this.#text = value; this.#dispatch("lambda-invoke:text-changed", value); }
-  #setDone(value: boolean): void { this.#done = value; this.#dispatch("lambda-invoke:done-changed", value); }
-  #setFirstByteLatency(value: number | null): void { this.#firstByteLatency = value; this.#dispatch("lambda-invoke:first-byte-latency-changed", value); }
-  #setStreamError(value: LambdaError | null): void { this.#streamError = value; this.#dispatch("lambda-invoke:stream-error", value); }
+  #setInvoking(value: boolean): void { if (this.#invoking === value) return; this.#invoking = value; this.#dispatch("lambda-invoke:invoking-changed", value); }
+  #setResult(value: unknown): void { if (this.#result === value) return; this.#result = value; this.#dispatch("lambda-invoke:result-changed", value); }
+  #setError(value: LambdaError | null): void { if (this.#error === value) return; this.#error = value; this.#dispatch("lambda-invoke:error", value); }
+  #setDuration(value: number | null): void { if (this.#duration === value) return; this.#duration = value; this.#dispatch("lambda-invoke:duration-changed", value); }
+  #setRequestId(value: string | null): void { if (this.#requestId === value) return; this.#requestId = value; this.#dispatch("lambda-invoke:request-id-changed", value); }
+  #setStatusCode(value: number | null): void { if (this.#statusCode === value) return; this.#statusCode = value; this.#dispatch("lambda-invoke:status-code-changed", value); }
+  #setFunctionError(value: string | null): void { if (this.#functionError === value) return; this.#functionError = value; this.#dispatch("lambda-invoke:function-error-changed", value); }
+  #setExecutedVersion(value: string | null): void { if (this.#executedVersion === value) return; this.#executedVersion = value; this.#dispatch("lambda-invoke:executed-version-changed", value); }
+  #setLogResult(value: string | null): void { if (this.#logResult === value) return; this.#logResult = value; this.#dispatch("lambda-invoke:log-result-changed", value); }
+  #setStreaming(value: boolean): void { if (this.#streaming === value) return; this.#streaming = value; this.#dispatch("lambda-invoke:streaming-changed", value); }
+  #setChunks(value: string[]): void { if (stringArraysEqual(this.#chunks, value)) return; this.#chunks = [...value]; this.#dispatch("lambda-invoke:chunks-changed", this.chunks); }
+  #setText(value: string): void { if (this.#text === value) return; this.#text = value; this.#dispatch("lambda-invoke:text-changed", value); }
+  #setDone(value: boolean): void { if (this.#done === value) return; this.#done = value; this.#dispatch("lambda-invoke:done-changed", value); }
+  #setFirstByteLatency(value: number | null): void { if (this.#firstByteLatency === value) return; this.#firstByteLatency = value; this.#dispatch("lambda-invoke:first-byte-latency-changed", value); }
+  #setStreamError(value: LambdaError | null): void { if (this.#streamError === value) return; this.#streamError = value; this.#dispatch("lambda-invoke:stream-error", value); }
 
   #isCurrentInvocation(invocationId: number): boolean {
     return invocationId === this.#activeInvocationId;
@@ -318,4 +359,8 @@ export class LambdaCore extends EventTarget {
 
 function now(): number {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
