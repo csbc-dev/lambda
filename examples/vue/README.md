@@ -18,4 +18,4 @@ npm install
 npm run dev                # http://localhost:5175
 ```
 
-Start [`../server`](../server/) first when you want remote mode. Vite proxies `/api/lambda` to `http://localhost:3000`.
+This example is remote-first, so start [`../server`](../server/) first — Vite proxies `/api/lambda` to `http://localhost:3000`, where the server-owned Core runs. The endpoint is attached via the `remote-url` attribute (no AWS credentials in the browser).

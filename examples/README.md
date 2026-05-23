@@ -9,7 +9,7 @@ Four runnable browser examples that match the build shape used by `@csbc-dev/aut
 | [`vue/`](vue/) | Vite + Vue + `@wc-bindable/vue` | `useWcBindable` composable around `<lambda-invoke>` |
 | [`wcstack-state/`](wcstack-state/) | Static HTML + CDN `<wcs-state>` | Declarative remote-first bindings (`attr.remote-url`) |
 
-The Vite clients and example server use the local package via `file:../..`, while `wcstack-state/` stays bundler-free and reads the local `dist/` build. The Vite clients (vanilla / react / vue) default to a browser-only mock provider and can switch to remote mode through `/api/lambda`. `wcstack-state/` is remote-first: it always talks to the server-owned Core at `/api/lambda`, attached declaratively via `attr.remote-url` with no imperative provider call.
+The Vite clients and example server use the local package via `file:../..`, while `wcstack-state/` stays bundler-free and loads the local build through `@csbc-dev/lambda/auto`. All four examples are **remote-first**: they talk to a server-owned `LambdaCore` at `/api/lambda` via the `remote-url` attribute, so AWS credentials never reach the browser. `wcstack-state/` wires it declaratively (`attr.remote-url`); the Vite clients set the same attribute imperatively.
 
 The example server scripts require Node 20.6+ because they use `node --env-file=...`.
 
@@ -22,7 +22,7 @@ npm run build
 
 ## Run order
 
-Start the shared mock server first if you want to use remote mode:
+Every example is remote-first, so start the shared server first — it owns the `LambdaCore` and provider at `/api/lambda`:
 
 ```bash
 cd examples/server
@@ -70,9 +70,9 @@ The default server `ALLOWED_ORIGINS` already lists `5173`-`5176` and `3000`. The
 
 ## What the clients demonstrate
 
-- Remote mode through a server-owned `LambdaCore` at `/api/lambda`, with no AWS credentials in the browser.
-- Local mock mode for the Vite clients (vanilla / react / vue); `wcstack-state/` is remote-first.
-- Same-origin endpoint validation before payloads are posted.
+- Remote-first invocation through a server-owned `LambdaCore` at `/api/lambda`, with no AWS credentials in the browser.
+- Attaching the remote Core via the `remote-url` attribute — declaratively in `wcstack-state/` (`attr.remote-url`), imperatively in the Vite clients.
+- Streaming output read from the `<lambda-stream>` child projection in all four clients.
 - `invoke`, `abort`, and `reset` command behavior through framework-specific bindings.
 
 The remote endpoint must keep AWS credentials server-side. The included server uses a mock provider; replace it with `AwsLambdaProvider` from `@csbc-dev/lambda/server` for real Lambda calls.

@@ -12,7 +12,7 @@
         <div>
           <p class="eyebrow">Vanilla DOM</p>
           <h1>Lambda invoke without a framework</h1>
-          <p class="summary">A custom element, a provider, and direct DOM event listeners. The mock provider keeps AWS credentials out of the browser while making the example runnable.</p>
+          <p class="summary">A custom element and direct DOM event listeners. Remote-first: the <code>remote-url</code> attribute attaches a server-owned Core at <code>/api/lambda</code>, so AWS credentials never reach the browser.</p>
         </div>
         <span class="badge">@csbc-dev/lambda</span>
       </header>
@@ -36,10 +36,6 @@
               <input id="remoteUrl" value="/api/lambda" autocomplete="off">
             </label>
           </div>
-          <label class="toggle">
-            <input id="useRemote" type="checkbox">
-            Use remote Core endpoint
-          </label>
           <label>
             Payload
             <textarea id="payload">{"name":"Ada","task":"vanilla example"}</textarea>
