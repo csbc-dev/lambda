@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>@wcstack/state Lambda Example</title>
+    <link rel="stylesheet" href="../shared/demo.css">
+    <script type="module">
+      import { bootstrapLambda } from "../../dist/index.js";
+      import { createMockLambdaProvider, formatExampleError, resolveRemoteEndpoint } from "../shared/mockLambdaProvider.js?v=2";
+
+      bootstrapLambda();
+      globalThis.createMockLambdaProvider = createMockLambdaProvider;
+      globalThis.formatLambdaExampleError = formatExampleError;
+      globalThis.resolveLambdaRemoteEndpoint = resolveRemoteEndpoint;
+      await import("https://esm.run/@wcstack/state@1.10.0/auto");
+    </script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">@wcstack/state</p>
+          <h1>Lambda invoke by paths and commands</h1>
+          <p class="summary">State paths bind to the custom element properties, and command tokens invoke `invoke`, `abort`, and `reset` without framework glue.</p>
+        </div>
+        <span class="badge">data-wcs + wc-bindable</span>
+      </header>
+
+      <wcs-state>
+        <script type="module">
+          export default {
+            $commandTokens: ["invokeLambda", "abortLambda", "resetLambda"],
+            functionName: "demo-function",
+            mode: "buffered",
+            remoteUrl: "/api/lambda",
+            useRemote: false,
+            payloadText: '{"name":"Ada","task":"wcstack-state example"}',
+            invoking: false,
+            streaming: false,
+            result: null,
+            error: null,
+            requestId: null,
+            duration: null,
+            text: "",
+            streamError: null,
+            localError: null,
+            _cleanup: null,
+
+            get parsedPayload() {
+              const value = this.payloadText.trim();
+              if (!value) return null;
+              try {
+                return JSON.parse(value);
+              } catch {
+                return value;
+              }
+            },
+            get resultText() {
+              return this.result === null ? "null" : JSON.stringify(this.result, null, 2);
+            },
+            get errorText() {
+              if (this.localError) return this.localError;
+              const error = this.error || this.streamError;
+              return error ? `${error.code}: ${error.message}` : "no error";
+            },
+            get statusText() {
+              return this.invoking ? "invoking" : this.streaming ? "streaming" : "ready";
+            },
+            get durationText() {
+              return this.duration === null ? "-" : `${Math.round(this.duration)}ms`;
+            },
+
+            configureProvider() {
+              const invoke = document.querySelector("#wcs-lambda");
+              if (!invoke) return;
+              if (this.useRemote) {
+                invoke.attachRemote(globalThis.resolveLambdaRemoteEndpoint(this.remoteUrl));
+              } else {
+                invoke.setProvider(globalThis.createMockLambdaProvider());
+              }
+            },
+            invoke() {
+              if (this.invoking) return;
+              this.localError = null;
+              try {
+                this.configureProvider();
+                this.$command.invokeLambda.emit();
+              } catch (error) {
+                this.localError = globalThis.formatLambdaExampleError(error);
+              }
+            },
+            abort() {
+              this.$command.abortLambda.emit();
+            },
+            reset() {
+              this.localError = null;
+              this.$command.resetLambda.emit();
+            },
+            syncFromElement() {
+              const invoke = document.querySelector("#wcs-lambda");
+              if (!invoke) return;
+              this.invoking = invoke.invoking;
+              this.streaming = invoke.streaming;
+              this.result = invoke.result;
+              this.error = invoke.error;
+              this.requestId = invoke.requestId;
+              this.duration = invoke.duration;
+              this.text = invoke.text;
+              this.streamError = invoke.streamError;
+            },
+            $connectedCallback() {
+              const invoke = document.querySelector("#wcs-lambda");
+              if (!invoke) return;
+              this.configureProvider();
+              const sync = () => this.syncFromElement();
+              const events = [
+                "lambda-invoke:invoking-changed",
+                "lambda-invoke:streaming-changed",
+                "lambda-invoke:result-changed",
+                "lambda-invoke:error",
+                "lambda-invoke:request-id-changed",
+                "lambda-invoke:duration-changed",
+                "lambda-invoke:text-changed",
+                "lambda-invoke:stream-error",
+              ];
+              for (const eventName of events) {
+                invoke.addEventListener(eventName, sync);
+              }
+              this._cleanup = () => {
+                for (const eventName of events) {
+                  invoke.removeEventListener(eventName, sync);
+                }
+              };
+              sync();
+            },
+            $disconnectedCallback() {
+              this._cleanup?.();
+              this._cleanup = null;
+            },
+          };
+        </script>
+      </wcs-state>
+
+      <section class="workspace">
+        <section class="panel controls">
+          <label>Function name <input data-wcs="value: functionName"></label>
+          <div class="row">
+            <label>Mode
+              <select data-wcs="value: mode">
+                <option value="buffered">buffered</option>
+                <option value="stream">stream</option>
+              </select>
+            </label>
+            <label>Remote endpoint <input data-wcs="value: remoteUrl"></label>
+          </div>
+          <label class="toggle"><input type="checkbox" data-wcs="checked: useRemote"> Use remote Core endpoint</label>
+          <label>Payload <textarea data-wcs="value: payloadText"></textarea></label>
+          <div class="actions">
+            <button type="button" data-wcs="onclick: invoke">Invoke</button>
+            <button class="secondary" type="button" data-wcs="onclick: abort">Abort</button>
+            <button class="secondary" type="button" data-wcs="onclick: reset">Reset</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="stats">
+            <div class="stat"><span>Status</span><strong data-wcs="textContent: statusText"></strong></div>
+            <div class="stat"><span>Request</span><strong data-wcs="textContent: requestId|defaults(-)"></strong></div>
+            <div class="stat"><span>Duration</span><strong data-wcs="textContent: durationText"></strong></div>
+          </div>
+          <div class="output-grid">
+            <pre data-wcs="textContent: resultText"></pre>
+            <pre data-wcs="textContent: text|defaults(stream text will appear here)"></pre>
+            <pre class="error" data-wcs="textContent: errorText"></pre>
+          </div>
+        </section>
+      </section>
+
+      <lambda-invoke id="wcs-lambda" data-wcs="functionName: functionName; mode: mode; payload: parsedPayload; command.invoke: $command.invokeLambda; command.abort: $command.abortLambda; command.reset: $command.resetLambda">
+        <lambda-stream></lambda-stream>
+      </lambda-invoke>
+    </main>
+  </body>
+</html>

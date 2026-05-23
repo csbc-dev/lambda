@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vanilla Lambda Example</title>
+    <link rel="stylesheet" href="../shared/demo.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">Vanilla DOM</p>
+          <h1>Lambda invoke without a framework</h1>
+          <p class="summary">A custom element, a provider, and direct DOM event listeners. The mock provider keeps AWS credentials out of the browser while making the example runnable.</p>
+        </div>
+        <span class="badge">@csbc-dev/lambda</span>
+      </header>
+
+      <section class="workspace">
+        <form class="panel controls" id="controls">
+          <label>
+            Function name
+            <input id="functionName" value="demo-function" autocomplete="off">
+          </label>
+          <div class="row">
+            <label>
+              Mode
+              <select id="mode">
+                <option value="buffered">buffered</option>
+                <option value="stream">stream</option>
+              </select>
+            </label>
+            <label>
+              Remote endpoint
+              <input id="remoteUrl" value="/api/lambda" autocomplete="off">
+            </label>
+          </div>
+          <label class="toggle">
+            <input id="useRemote" type="checkbox">
+            Use remote Core endpoint
+          </label>
+          <label>
+            Payload
+            <textarea id="payload">{"name":"Ada","task":"vanilla example"}</textarea>
+          </label>
+          <div class="actions">
+            <button id="invoke" type="submit">Invoke</button>
+            <button id="abort" class="secondary" type="button">Abort</button>
+            <button id="reset" class="secondary" type="button">Reset</button>
+          </div>
+        </form>
+
+        <section class="panel">
+          <div class="stats">
+            <div class="stat"><span>Status</span><strong id="status">idle</strong></div>
+            <div class="stat"><span>Request</span><strong id="requestId">-</strong></div>
+            <div class="stat"><span>Duration</span><strong id="duration">-</strong></div>
+          </div>
+          <div class="output-grid">
+            <pre id="result">null</pre>
+            <pre id="stream">stream text will appear here</pre>
+            <pre id="error" class="error">no error</pre>
+          </div>
+        </section>
+      </section>
+
+      <lambda-invoke id="lambda" mode="buffered">
+        <lambda-stream></lambda-stream>
+      </lambda-invoke>
+    </main>
+    <script type="module" src="./app.js?v=3"></script>
+  </body>
+</html>

@@ -12,7 +12,13 @@ This repository is in alpha implementation.
 - Stream invoke: implemented through AWS `InvokeWithResponseStream`; custom transports can still be injected through `streamInvoker`
 - Remote invocation: implemented through a fetch-backed browser provider and server-owned Core handler
 
-The design intent is documented in [CLAUDE.md](CLAUDE.md) and the package contract is fixed in [SPEC.md](SPEC.md).
+The design intent is documented in [CLAUDE.md](https://github.com/csbc-dev/lambda/blob/main/CLAUDE.md) and the package contract is fixed in [SPEC.md](SPEC.md).
+
+## Examples
+
+Runnable browser examples for Vanilla DOM, React, Vue, and `@wcstack/state` live in the [examples README](https://github.com/csbc-dev/lambda/blob/main/examples/README.md).
+
+They import the local `dist/` build, use a shared mock provider by default, and can be switched to a real remote Core endpoint when you want to test the server-side integration.
 
 ## Install
 
