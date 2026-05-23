@@ -1,5 +1,6 @@
 import { getConfig } from "../config.js";
 import { raiseError } from "../raiseError.js";
+import { LambdaCore } from "../core/LambdaCore.js";
 import type { LambdaError } from "../types.js";
 import type { LambdaInvoke } from "./LambdaInvoke.js";
 
@@ -57,7 +58,18 @@ export class LambdaStream extends HTMLElementBase {
     this.#detachFromParent();
 
     const tagName = getConfig().tagNames.lambdaInvoke;
-    const candidate = this.closest(tagName);
+    // The configured parent tag name is fed to closest() as a CSS selector. A
+    // misconfigured name (empty, whitespace, or otherwise selector-invalid)
+    // makes closest() throw a SyntaxError. Treat that exactly like "no valid
+    // parent" instead of letting the exception escape connectedCallback and
+    // break the page — the child enters the same safe inert LAMBDA_PARENT_REQUIRED
+    // state (SPEC 8).
+    let candidate: Element | null = null;
+    try {
+      candidate = this.closest(tagName);
+    } catch {
+      candidate = null;
+    }
 
     if (!(candidate instanceof HTMLElement) || !isLambdaInvokeHost(candidate)) {
       this.#setStreamError(raiseError(this, "lambda-stream:error", new Error("lambda-stream requires a parent lambda-invoke"), "LAMBDA_PARENT_REQUIRED"));
@@ -170,6 +182,17 @@ function stringArraysEqual(left: readonly string[], right: readonly string[]): b
 }
 
 function isLambdaInvokeHost(value: HTMLElement): value is LambdaInvoke {
+  // Brand check: a genuine <lambda-invoke> host exposes a `core` getter backed by
+  // a real LambdaCore instance. This is far stronger than ducktyping on method/
+  // property shapes — it cannot be matched by an unrelated element that merely
+  // happens to define `invoke`/`chunks`/`text` (relevant when the parent tag name
+  // is reconfigured to something generic). The shape checks remain as a defensive
+  // fallback for hosts that proxy `core`.
+  const core = (value as Partial<LambdaInvoke>).core;
+  if (core instanceof LambdaCore) {
+    return true;
+  }
+
   return typeof (value as Partial<LambdaInvoke>).invoke === "function"
     && Array.isArray((value as Partial<LambdaInvoke>).chunks)
     && typeof (value as Partial<LambdaInvoke>).text === "string";

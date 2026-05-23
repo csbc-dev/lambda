@@ -121,6 +121,8 @@ In stream mode the remote handler responds with an [NDJSON](https://github.com/n
 
 An explicit `remote-url` attribute or a prior `setProvider()` takes precedence over env auto-attach — env only fills the gap. The plain `@csbc-dev/lambda/auto` entry registers the elements without enabling remote mode.
 
+> **Note for contributors.** The `auto`/`auto/remoteEnv` entries (`src/auto/*.js`) are hand-written side-effect modules shipped verbatim — they are not TypeScript-compiled (the build excludes `src/auto`). They import the build output at `../../dist/index.js`, so they only resolve after `npm run build` has produced `dist/`. In the published package and on a CDN such as `esm.run`, `src/auto/` and `dist/` sit side by side at the package root, so the relative path resolves there too. `prepack` runs the build before publishing; local examples document "build the workspace first".
+
 ## Buffered invoke example
 
 ```ts

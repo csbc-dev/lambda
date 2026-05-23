@@ -40,7 +40,7 @@ export class LambdaRemoteProvider implements ILambdaProvider {
     const contentType = response.headers.get("content-type") ?? "";
 
     if (response.body && isNdjson(contentType)) {
-      return this.#readStreamResponse(response.body, observer);
+      return this.#readStreamResponse(response.body, observer, options.signal);
     }
 
     // Backward-compatible fallback: a server that returns one buffered JSON
@@ -59,12 +59,18 @@ export class LambdaRemoteProvider implements ILambdaProvider {
       options: serializableOptions,
     } satisfies LambdaRemoteInvokeRequest;
 
+    // Normalize user headers through `Headers` so all three HeadersInit forms
+    // (plain object, [k,v][] array, Headers instance) merge correctly — object
+    // spread would silently drop the array/Headers forms, losing Authorization
+    // etc. The request body is always JSON (and the response is JSON/NDJSON by
+    // contract), so we pin content-type AFTER merging user headers: the fixed
+    // value wins and a stray user content-type cannot break the wire format.
+    const headers = new Headers(this.#headers);
+    headers.set("content-type", "application/json");
+
     const response = await this.#fetch(this.#url, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...this.#headers,
-      },
+      headers,
       body: JSON.stringify(body),
       signal,
     });
@@ -93,7 +99,7 @@ export class LambdaRemoteProvider implements ILambdaProvider {
     return payload.response;
   }
 
-  async #readStreamResponse(body: ReadableStream<Uint8Array>, observer: LambdaStreamObserver): Promise<LambdaInvokeResponse> {
+  async #readStreamResponse(body: ReadableStream<Uint8Array>, observer: LambdaStreamObserver, signal?: AbortSignal): Promise<LambdaInvokeResponse> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -126,6 +132,17 @@ export class LambdaRemoteProvider implements ILambdaProvider {
 
     try {
       for (;;) {
+        // Stop reading and projecting as soon as the invocation is aborted.
+        // fetch's own abort also rejects reader.read(), but checking the signal
+        // explicitly guarantees we never emit a chunk after abort and frees the
+        // reader promptly — symmetric with the AWS SDK stream path, which checks
+        // `options.signal?.aborted` per event. The Core's #isCurrentInvocation
+        // guard is a second line of defense, not the only one.
+        if (signal?.aborted) {
+          await reader.cancel().catch(() => {});
+          throw toLambdaError(new Error("Remote Lambda stream aborted"), "LAMBDA_ABORTED");
+        }
+
         const { value, done } = await reader.read();
         if (done) {
           break;
@@ -135,6 +152,10 @@ export class LambdaRemoteProvider implements ILambdaProvider {
 
         let newlineIndex = buffer.indexOf("\n");
         while (newlineIndex >= 0) {
+          if (signal?.aborted) {
+            await reader.cancel().catch(() => {});
+            throw toLambdaError(new Error("Remote Lambda stream aborted"), "LAMBDA_ABORTED");
+          }
           handleLine(buffer.slice(0, newlineIndex));
           buffer = buffer.slice(newlineIndex + 1);
           newlineIndex = buffer.indexOf("\n");

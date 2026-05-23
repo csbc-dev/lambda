@@ -34,24 +34,6 @@ export declare class LambdaCore extends EventTarget {
         }, {
             readonly name: "mode";
             readonly event: "lambda-invoke:mode-changed";
-        }, {
-            readonly name: "streaming";
-            readonly event: "lambda-invoke:streaming-changed";
-        }, {
-            readonly name: "chunks";
-            readonly event: "lambda-invoke:chunks-changed";
-        }, {
-            readonly name: "text";
-            readonly event: "lambda-invoke:text-changed";
-        }, {
-            readonly name: "done";
-            readonly event: "lambda-invoke:done-changed";
-        }, {
-            readonly name: "firstByteLatency";
-            readonly event: "lambda-invoke:first-byte-latency-changed";
-        }, {
-            readonly name: "streamError";
-            readonly event: "lambda-invoke:stream-error";
         }];
         readonly inputs: readonly [{
             readonly name: "functionName";
@@ -107,6 +89,14 @@ export declare class LambdaCore extends EventTarget {
     get hasProvider(): boolean;
     setProvider(provider: ILambdaProvider | null): void;
     setPinPolicy(policy: LambdaPinPolicy | null): void;
+    /**
+     * Run an invocation. Resolves to the response on success, or `undefined` when
+     * no result is surfaced — the reason is reflected on the `error` property:
+     * policy denial (`LAMBDA_POLICY_DENIED`), misconfiguration (`LAMBDA_CONFIG_ERROR`),
+     * transport/Lambda failure (`LAMBDA_INVOKE_FAILED`), or abort (`LAMBDA_ABORTED`).
+     * A call superseded by a newer invoke()/abort()/reset() also resolves
+     * `undefined` and never overwrites the newer invocation's state. Never rejects.
+     */
     invoke(options?: Partial<LambdaInvokeOptions>, observer?: LambdaStreamObserver): Promise<LambdaInvokeResponse | undefined>;
     abort(): void;
     reset(): void;

@@ -9,7 +9,7 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
     if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
     return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
-var _AwsLambdaProvider_instances, _AwsLambdaProvider_invoker, _AwsLambdaProvider_streamInvoker, _AwsLambdaProvider_policy, _AwsLambdaProvider_client, _AwsLambdaProvider_normalizeOptions, _AwsLambdaProvider_resolveFunctionName, _AwsLambdaProvider_resolveQualifier, _AwsLambdaProvider_invokeWithSdk, _AwsLambdaProvider_invokeStreamWithSdk;
+var _AwsLambdaProvider_instances, _AwsLambdaProvider_invoker, _AwsLambdaProvider_streamInvoker, _AwsLambdaProvider_policy, _AwsLambdaProvider_client, _AwsLambdaProvider_sdkClient, _AwsLambdaProvider_normalizeOptions, _AwsLambdaProvider_resolveFunctionName, _AwsLambdaProvider_resolveQualifier, _AwsLambdaProvider_invokeWithSdk, _AwsLambdaProvider_invokeStreamWithSdk;
 import { InvokeCommand, InvokeWithResponseStreamCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { toLambdaError } from "../raiseError.js";
 import { clonePinPolicy, resolveFunctionName, resolveLogType, resolveQualifier } from "../pinPolicy.js";
@@ -20,7 +20,13 @@ export class AwsLambdaProvider {
         _AwsLambdaProvider_streamInvoker.set(this, void 0);
         _AwsLambdaProvider_policy.set(this, void 0);
         _AwsLambdaProvider_client.set(this, void 0);
-        __classPrivateFieldSet(this, _AwsLambdaProvider_client, options.sdkClient ?? (options.invoker && options.streamInvoker ? null : new LambdaClient({})), "f");
+        // Lazily create the SDK client only when an SDK code path is actually hit.
+        // An injected sdkClient is used as-is; otherwise the client stays null until
+        // #client (the getter below) first needs it. This avoids constructing a
+        // LambdaClient — which initializes the AWS credential provider chain — when
+        // the provider is fully driven by injected invoker/streamInvoker (e.g. tests
+        // or a custom transport), including the common "invoker only" case.
+        __classPrivateFieldSet(this, _AwsLambdaProvider_client, options.sdkClient ?? null, "f");
         __classPrivateFieldSet(this, _AwsLambdaProvider_invoker, options.invoker ?? ((invokeOptions) => __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_invokeWithSdk).call(this, invokeOptions)), "f");
         __classPrivateFieldSet(this, _AwsLambdaProvider_streamInvoker, options.streamInvoker ?? null, "f");
         __classPrivateFieldSet(this, _AwsLambdaProvider_policy, clonePinPolicy(options.policy), "f");
@@ -49,7 +55,9 @@ export class AwsLambdaProvider {
         }
     }
 }
-_AwsLambdaProvider_invoker = new WeakMap(), _AwsLambdaProvider_streamInvoker = new WeakMap(), _AwsLambdaProvider_policy = new WeakMap(), _AwsLambdaProvider_client = new WeakMap(), _AwsLambdaProvider_instances = new WeakSet(), _AwsLambdaProvider_normalizeOptions = function _AwsLambdaProvider_normalizeOptions(options) {
+_AwsLambdaProvider_invoker = new WeakMap(), _AwsLambdaProvider_streamInvoker = new WeakMap(), _AwsLambdaProvider_policy = new WeakMap(), _AwsLambdaProvider_client = new WeakMap(), _AwsLambdaProvider_instances = new WeakSet(), _AwsLambdaProvider_sdkClient = function _AwsLambdaProvider_sdkClient() {
+    return (__classPrivateFieldSet(this, _AwsLambdaProvider_client, __classPrivateFieldGet(this, _AwsLambdaProvider_client, "f") ?? new LambdaClient({}), "f"));
+}, _AwsLambdaProvider_normalizeOptions = function _AwsLambdaProvider_normalizeOptions(options) {
     const functionName = __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_resolveFunctionName).call(this, options.functionName);
     const qualifier = __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_resolveQualifier).call(this, options.qualifier ?? null);
     const logType = resolveLogType(options.logType, __classPrivateFieldGet(this, _AwsLambdaProvider_policy, "f"));
@@ -64,10 +72,7 @@ _AwsLambdaProvider_invoker = new WeakMap(), _AwsLambdaProvider_streamInvoker = n
 }, _AwsLambdaProvider_resolveQualifier = function _AwsLambdaProvider_resolveQualifier(requestedValue) {
     return resolveQualifier(requestedValue, __classPrivateFieldGet(this, _AwsLambdaProvider_policy, "f"));
 }, _AwsLambdaProvider_invokeWithSdk = async function _AwsLambdaProvider_invokeWithSdk(options) {
-    if (!__classPrivateFieldGet(this, _AwsLambdaProvider_client, "f")) {
-        throw toLambdaError(new Error("No Lambda client available"), "LAMBDA_CONFIG_ERROR");
-    }
-    const response = await __classPrivateFieldGet(this, _AwsLambdaProvider_client, "f").send(new InvokeCommand({
+    const response = await __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_sdkClient).call(this).send(new InvokeCommand({
         FunctionName: options.functionName,
         Payload: serializePayload(options.payload),
         Qualifier: options.qualifier ?? undefined,
@@ -85,16 +90,13 @@ _AwsLambdaProvider_invoker = new WeakMap(), _AwsLambdaProvider_streamInvoker = n
         logResult: decodeLogResult(response.LogResult ?? null),
     };
 }, _AwsLambdaProvider_invokeStreamWithSdk = async function _AwsLambdaProvider_invokeStreamWithSdk(options, observer) {
-    if (!__classPrivateFieldGet(this, _AwsLambdaProvider_client, "f")) {
-        throw toLambdaError(new Error("No Lambda client available"), "LAMBDA_CONFIG_ERROR");
-    }
     const startedAt = now();
     const chunks = [];
     let text = "";
     let firstByteLatency = null;
     let functionError = null;
     let logResult = null;
-    const response = await __classPrivateFieldGet(this, _AwsLambdaProvider_client, "f").send(new InvokeWithResponseStreamCommand({
+    const response = await __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_sdkClient).call(this).send(new InvokeWithResponseStreamCommand({
         FunctionName: options.functionName,
         Payload: serializePayload(options.payload),
         Qualifier: options.qualifier ?? undefined,
@@ -109,15 +111,23 @@ _AwsLambdaProvider_invoker = new WeakMap(), _AwsLambdaProvider_streamInvoker = n
         }
         if (event.PayloadChunk) {
             const chunk = textDecoder.decode(event.PayloadChunk.Payload ?? new Uint8Array());
+            let chunkFirstByteLatency;
             if (firstByteLatency === null) {
                 firstByteLatency = now() - startedAt;
+                // Attach firstByteLatency to the FIRST chunk only; subsequent chunks
+                // carry `undefined`. This matches the package convention (see
+                // LambdaStreamChunk in types.ts and the stream transport tests) and
+                // keeps the NDJSON wire from redundantly repeating the value. The Core
+                // captures it once regardless, but the per-chunk shape stays consistent
+                // across the SDK, remote, and replay paths.
+                chunkFirstByteLatency = firstByteLatency;
             }
             chunks.push(chunk);
             text += chunk;
             observer.onChunk({
                 chunk,
                 textDelta: chunk,
-                firstByteLatency,
+                firstByteLatency: chunkFirstByteLatency,
             });
         }
         if (event.InvokeComplete) {
@@ -183,7 +193,12 @@ function decodeLogResult(logResult) {
         return nodeBuffer.from(logResult, "base64").toString("utf8");
     }
     if (typeof atob !== "undefined") {
-        return atob(logResult);
+        // `atob` yields a Latin-1 "binary string" (one char per byte), which mangles
+        // UTF-8 multibyte content (e.g. Japanese) in Tail logs. Re-interpret those
+        // bytes as UTF-8 so the non-Node fallback matches the Node Buffer path above.
+        const binary = atob(logResult);
+        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        return textDecoder.decode(bytes);
     }
     return logResult;
 }

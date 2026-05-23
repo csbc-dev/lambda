@@ -36,24 +36,6 @@ export declare class LambdaInvoke extends HTMLElementBase {
         }, {
             readonly name: "mode";
             readonly event: "lambda-invoke:mode-changed";
-        }, {
-            readonly name: "streaming";
-            readonly event: "lambda-invoke:streaming-changed";
-        }, {
-            readonly name: "chunks";
-            readonly event: "lambda-invoke:chunks-changed";
-        }, {
-            readonly name: "text";
-            readonly event: "lambda-invoke:text-changed";
-        }, {
-            readonly name: "done";
-            readonly event: "lambda-invoke:done-changed";
-        }, {
-            readonly name: "firstByteLatency";
-            readonly event: "lambda-invoke:first-byte-latency-changed";
-        }, {
-            readonly name: "streamError";
-            readonly event: "lambda-invoke:stream-error";
         }];
         readonly inputs: readonly [{
             readonly name: "functionName";
@@ -111,6 +93,21 @@ export declare class LambdaInvoke extends HTMLElementBase {
     get firstByteLatency(): number | null;
     get streamError(): LambdaError | null;
     get pinPolicy(): Readonly<LambdaPinPolicy>;
+    /**
+     * Start an invocation against the attached (typically remote) Core.
+     *
+     * Resolves to the {@link LambdaInvokeResponse} on success. Resolves to
+     * `undefined` (it never rejects) when the invocation does not produce a
+     * surfaced result, in which case the failure is reflected on the bindable
+     * `error` property:
+     * - input/policy rejection (`functionName`/`qualifier` denied by pin policy) — `error.code === "LAMBDA_POLICY_DENIED"`
+     * - no provider attached or missing `functionName` — `error.code === "LAMBDA_CONFIG_ERROR"`
+     * - transport/provider/Lambda failure — `error.code === "LAMBDA_INVOKE_FAILED"`
+     * - aborted, or superseded by a newer invoke()/abort()/reset() before completing — resolves `undefined`; an aborted call sets `error.code === "LAMBDA_ABORTED"`, a superseded call leaves the newer invocation's state intact
+     *
+     * Callers must not assume a defined return value implies success-only flow;
+     * read `error`/`result` for authoritative state.
+     */
     invoke(): Promise<LambdaInvokeResponse | undefined>;
     setProvider(provider: ILambdaProvider | null): void;
     attachRemote(url?: string): void;

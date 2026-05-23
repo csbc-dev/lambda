@@ -28,15 +28,40 @@ export class LambdaInvoke extends HTMLElementBase {
     // Precedence: an explicit `remote-url` attribute or an already-set provider
     // (e.g. setProvider() before connect) wins — env only fills the gap.
     if (
-      getConfig().remote.enableRemote &&
       !this.hasAttribute("remote-url") &&
       !this.#core.hasProvider
     ) {
-      const url = getRemoteCoreUrl();
-      if (url) {
-        this.attachRemote(url);
-      }
+      this.#attachEnvRemote();
     }
+  }
+
+  /**
+   * Attach a remote provider resolved from env config, if env-driven remote
+   * mode is enabled and a URL is available. No-op otherwise. Used both on
+   * connect and when an explicit `remote-url` is cleared, so detaching the
+   * declarative URL falls back to the env-resolved Core instead of leaving the
+   * element provider-less while env mode is active.
+   */
+  #attachEnvRemote(): void {
+    if (!getConfig().remote.enableRemote) {
+      return;
+    }
+
+    const url = getRemoteCoreUrl();
+    if (url) {
+      this.attachRemote(url);
+    }
+  }
+
+  /**
+   * Detach the declaratively-attached remote provider. If env-driven remote
+   * mode is active, re-apply the env-resolved provider so the element stays
+   * remote-first (symmetric with connectedCallback); otherwise drop to no
+   * provider.
+   */
+  #detachRemote(): void {
+    this.setProvider(null);
+    this.#attachEnvRemote();
   }
 
   attributeChangedCallback(name: string, _oldValue: string | null, newValue: string | null): void {
@@ -61,14 +86,14 @@ export class LambdaInvoke extends HTMLElementBase {
       case "remote-url":
         // Declarative remote attachment: a non-empty `remote-url` attaches a
         // LambdaRemoteProvider pointing at that URL; clearing the attribute
-        // detaches it (back to no provider). This keeps the remote-first
-        // wiring in HTML — no imperative attachRemote()/setProvider() call is
-        // needed. AWS credentials never reach the browser: the URL points at
-        // a server-owned Core, mirroring <auth0-gate>'s `remote-url`.
+        // detaches it. This keeps the remote-first wiring in HTML — no
+        // imperative attachRemote()/setProvider() call is needed. AWS
+        // credentials never reach the browser: the URL points at a server-owned
+        // Core, mirroring <auth0-gate>'s `remote-url`.
         if (newValue) {
           this.attachRemote(newValue);
         } else {
-          this.setProvider(null);
+          this.#detachRemote();
         }
         break;
     }
@@ -115,6 +140,14 @@ export class LambdaInvoke extends HTMLElementBase {
   get functionError(): string | null { return this.#core.functionError; }
   get executedVersion(): string | null { return this.#core.executedVersion; }
   get logResult(): string | null { return this.#core.logResult; }
+  // Stream-projection getters. These are NOT part of the parent's public
+  // bindable contract (SPEC 7.1) — that contract lives in
+  // `wcBindable.properties` and deliberately excludes them; stream output is the
+  // child `<lambda-stream>` contract (SPEC 7.2). They exist here only as an
+  // internal read surface that the child uses to project parent-owned state
+  // (LambdaStream's #syncFromParent reads them, and isLambdaInvokeHost
+  // ducktypes on `chunks`/`text`). Bind stream output through `<lambda-stream>`,
+  // not through these getters.
   get streaming(): boolean { return this.#core.streaming; }
   get chunks(): string[] { return this.#core.chunks; }
   get text(): string { return this.#core.text; }
@@ -123,6 +156,21 @@ export class LambdaInvoke extends HTMLElementBase {
   get streamError(): LambdaError | null { return this.#core.streamError; }
   get pinPolicy(): Readonly<LambdaPinPolicy> { return this.#core.pinPolicy; }
 
+  /**
+   * Start an invocation against the attached (typically remote) Core.
+   *
+   * Resolves to the {@link LambdaInvokeResponse} on success. Resolves to
+   * `undefined` (it never rejects) when the invocation does not produce a
+   * surfaced result, in which case the failure is reflected on the bindable
+   * `error` property:
+   * - input/policy rejection (`functionName`/`qualifier` denied by pin policy) — `error.code === "LAMBDA_POLICY_DENIED"`
+   * - no provider attached or missing `functionName` — `error.code === "LAMBDA_CONFIG_ERROR"`
+   * - transport/provider/Lambda failure — `error.code === "LAMBDA_INVOKE_FAILED"`
+   * - aborted, or superseded by a newer invoke()/abort()/reset() before completing — resolves `undefined`; an aborted call sets `error.code === "LAMBDA_ABORTED"`, a superseded call leaves the newer invocation's state intact
+   *
+   * Callers must not assume a defined return value implies success-only flow;
+   * read `error`/`result` for authoritative state.
+   */
   async invoke(): Promise<LambdaInvokeResponse | undefined> {
     return this.#core.invoke();
   }
@@ -132,6 +180,11 @@ export class LambdaInvoke extends HTMLElementBase {
   }
 
   attachRemote(url = getRemoteCoreUrl()): void {
+    // An empty URL is a misconfiguration, not a silent no-op: LambdaRemoteProvider
+    // throws a normalized LAMBDA_CONFIG_ERROR for an empty url, so an explicit
+    // bad call fails fast. The env auto-attach path (#attachEnvRemote) guards
+    // with `if (url)` and never reaches here with an empty string, and
+    // getRemoteCoreUrl() now reports an empty env var as "" (= unset).
     this.setProvider(new LambdaRemoteProvider({ url }));
   }
 

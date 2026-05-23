@@ -173,6 +173,53 @@ describe("lambda integration", () => {
     expect(invoke.error).toMatchObject({ code: "LAMBDA_CONFIG_ERROR" });
   });
 
+  it("falls back to the env-resolved remote Core when remote-url is cleared (env mode)", async () => {
+    const invoker = vi.fn(async (options) => ({
+      result: { echoed: options.payload, functionName: options.functionName },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-env-fallback",
+      logResult: null,
+    }));
+    const serverCore = bootstrapLambdaServer({
+      providerOptions: { invoker },
+      pinPolicy: { pinnedFunctionName: "env-fallback-function" },
+    });
+    const handler = createLambdaRemoteHandler(serverCore);
+    const remoteFetch = vi.fn(async (input, init) => handler(new Request(String(input), {
+      method: init?.method,
+      headers: init?.headers,
+      body: init?.body as BodyInit,
+    }))) as unknown as typeof fetch;
+    const invoke = document.createElement(integrationTagNames.lambdaInvoke) as LambdaInvoke;
+
+    vi.stubGlobal("fetch", remoteFetch);
+    Reflect.set(globalThis, "LAMBDA_REMOTE_CORE_URL", "https://env.test/lambda");
+    setConfig({ remote: { enableRemote: true, remoteSettingType: "env" } });
+
+    try {
+      invoke.setAttribute("function-name", "browser-choice");
+      invoke.payload = { prompt: "env-fallback" };
+      // Explicit URL first, then cleared. With env mode active, clearing must
+      // re-attach the env-resolved Core instead of leaving no provider.
+      invoke.setAttribute("remote-url", "https://attr.test/lambda");
+      invoke.removeAttribute("remote-url");
+
+      const response = await invoke.invoke();
+
+      expect(remoteFetch).toHaveBeenCalledTimes(1);
+      expect(remoteFetch.mock.calls[0][0]).toBe("https://env.test/lambda");
+      expect(response).toMatchObject({ requestId: "req-env-fallback" });
+      expect(invoke.error).toBeNull();
+    } finally {
+      invoke.remove();
+      setConfig({ remote: { enableRemote: false, remoteSettingType: "config", remoteCoreUrl: "" } });
+      Reflect.deleteProperty(globalThis, "LAMBDA_REMOTE_CORE_URL");
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("auto-attaches a remote provider from env config on connect (remoteEnv)", async () => {
     const invoker = vi.fn(async (options) => ({
       result: { echoed: options.payload, functionName: options.functionName },
@@ -362,6 +409,79 @@ describe("lambda integration", () => {
         message: "tenant config unavailable",
       },
     });
+  });
+
+  it("does not leak raw provider error internals (cause/$metadata) across the wire (buffered)", async () => {
+    // Simulate an AWS SDK v3-style error: an Error subclass with ENUMERABLE
+    // internal properties that JSON.stringify would otherwise serialize.
+    class FakeSdkError extends Error {
+      $metadata = { httpStatusCode: 403, requestId: "aws-internal-req", cfId: "secret-cf" };
+      $fault = "client";
+      functionArn = "arn:aws:lambda:us-east-1:123456789012:function:secret-fn";
+    }
+    const invoker = vi.fn(async () => {
+      throw new FakeSdkError("AccessDeniedException: secret internal detail");
+    });
+    const serverCore = bootstrapLambdaServer({
+      providerOptions: { invoker },
+      pinPolicy: { pinnedFunctionName: "server-owned-function" },
+    });
+    const handler = createLambdaRemoteHandler(serverCore);
+
+    const response = await handler(new Request("https://example.test/lambda", {
+      method: "POST",
+      body: JSON.stringify({
+        command: "invoke",
+        options: { functionName: "server-owned-function", payload: null, mode: "buffered" },
+      }),
+    }));
+    const raw = await response.text();
+    const body = JSON.parse(raw);
+
+    // The normalized code/message still reach the browser (the provider wraps
+    // SDK errors as LAMBDA_PROVIDER_ERROR; the Core keeps that classification)...
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("LAMBDA_PROVIDER_ERROR");
+    // ...but no raw provider internals do.
+    expect(body.error).not.toHaveProperty("cause");
+    expect(raw).not.toContain("$metadata");
+    expect(raw).not.toContain("functionArn");
+    expect(raw).not.toContain("secret-cf");
+    expect(raw).not.toContain("aws-internal-req");
+  });
+
+  it("does not leak raw provider error internals across the NDJSON stream wire", async () => {
+    class FakeSdkError extends Error {
+      $metadata = { httpStatusCode: 500, requestId: "aws-stream-req" };
+      $response = { body: "internal-stream-secret" };
+    }
+    const streamInvoker = vi.fn(async () => {
+      throw new FakeSdkError("stream internal failure detail");
+    });
+    const serverCore = bootstrapLambdaServer({
+      providerOptions: { invoker: vi.fn(), streamInvoker },
+      pinPolicy: { pinnedFunctionName: "chat-stream" },
+    });
+    const handler = createLambdaRemoteHandler(serverCore);
+
+    const response = await handler(new Request("https://example.test/lambda", {
+      method: "POST",
+      body: JSON.stringify({
+        command: "invoke",
+        options: { functionName: "chat-stream", payload: null, mode: "stream" },
+      }),
+    }));
+    const raw = await response.text();
+
+    const events = raw.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const errorEvent = events.find((event) => event.type === "error");
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent.error.code).toBe("LAMBDA_PROVIDER_ERROR");
+    expect(errorEvent.error).not.toHaveProperty("cause");
+    expect(raw).not.toContain("$metadata");
+    expect(raw).not.toContain("$response");
+    expect(raw).not.toContain("internal-stream-secret");
+    expect(raw).not.toContain("aws-stream-req");
   });
 
   it("rejects concurrent requests when a shared remote Core is still active", async () => {
@@ -609,6 +729,21 @@ describe("lambda integration", () => {
     });
 
     stream.remove();
+  });
+
+  it("does not throw when the configured parent tag name is an invalid CSS selector", () => {
+    const stream = document.createElement(integrationTagNames.lambdaStream) as LambdaStream;
+    // Whitespace is a valid custom-element-name-shaped string in config but an
+    // invalid closest() selector — closest() would throw a SyntaxError.
+    setConfig({ tagNames: { lambdaInvoke: "   " } });
+
+    try {
+      expect(() => document.body.appendChild(stream)).not.toThrow();
+      expect(stream.streamError).toMatchObject({ code: "LAMBDA_PARENT_REQUIRED" });
+    } finally {
+      stream.remove();
+      setConfig({ tagNames: integrationTagNames });
+    }
   });
 
   it("stops projecting parent stream updates after lambda-stream detaches", async () => {

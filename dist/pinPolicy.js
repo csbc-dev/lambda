@@ -36,10 +36,18 @@ export function resolveLogType(requestedValue, policy) {
 }
 export function resolveQualifier(requestedValue, policy) {
     const { pinnedQualifier, allowQualifierOverride = false, allowedQualifiers, } = policy;
+    // Treat an empty/whitespace-only requested qualifier as "not specified" (null)
+    // rather than a literal value. A declarative `<lambda-invoke qualifier="">`
+    // would otherwise resolve to "" and be forwarded to the SDK as `Qualifier: ""`,
+    // which AWS Lambda rejects. `??` keeps "" (it is not null/undefined), so this
+    // explicit normalization is required.
+    const normalizedRequest = requestedValue !== null && requestedValue.trim() === ""
+        ? null
+        : requestedValue;
     if (pinnedQualifier !== undefined && !allowQualifierOverride) {
         return pinnedQualifier;
     }
-    const resolvedValue = requestedValue ?? pinnedQualifier ?? null;
+    const resolvedValue = normalizedRequest ?? pinnedQualifier ?? null;
     if (resolvedValue === null) {
         return null;
     }

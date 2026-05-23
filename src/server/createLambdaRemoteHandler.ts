@@ -1,6 +1,6 @@
 import { toLambdaError } from "../raiseError.js";
 import type { LambdaCore } from "../core/LambdaCore.js";
-import type { LambdaInvokeOptions, LambdaInvokeResponse, LambdaRemoteInvokeRequest, LambdaRemoteInvokeResponse, LambdaRemoteStreamEvent } from "../types.js";
+import type { LambdaError, LambdaInvokeOptions, LambdaInvokeResponse, LambdaRemoteInvokeRequest, LambdaRemoteInvokeResponse, LambdaRemoteStreamEvent } from "../types.js";
 
 export type LambdaRemoteHandler = (request: Request) => Promise<Response>;
 export type LambdaRemoteCoreSource = LambdaCore | ((request: Request) => LambdaCore | Promise<LambdaCore>);
@@ -56,10 +56,21 @@ export function createLambdaRemoteHandler(coreSource: LambdaRemoteCoreSource, op
       sharedCoreBusy = true;
     }
 
+    // Idempotent, single-owner release of the shared-core lock. The stream path
+    // can reach release from two directions — the ReadableStream `start` finally
+    // and a consumer-triggered `cancel()` (and the timeout path aborts then the
+    // finally runs) — so a naive `sharedCoreBusy = false` could fire twice. The
+    // second firing would clear a lock a *different*, newer request has since
+    // acquired, letting two requests run against the shared Core at once. The
+    // `released` flag scopes the release to this request: only the first call
+    // frees the lock; later calls are no-ops.
+    let released = false;
     const releaseSharedCore = () => {
-      if (isSharedCore) {
-        sharedCoreBusy = false;
+      if (!isSharedCore || released) {
+        return;
       }
+      released = true;
+      sharedCoreBusy = false;
     };
     const timeoutMs = options.sharedCoreTimeoutMs ?? 300_000;
 
@@ -90,7 +101,7 @@ export function createLambdaRemoteHandler(coreSource: LambdaRemoteCoreSource, op
     if (!response) {
       return Response.json({
         ok: false,
-        error: core.error ?? toLambdaError(new Error("Remote Lambda invocation failed"), "LAMBDA_INVOKE_FAILED"),
+        error: toWireError(core.error ?? new Error("Remote Lambda invocation failed"), "LAMBDA_INVOKE_FAILED"),
       } satisfies LambdaRemoteInvokeResponse, { status: 400 });
     }
 
@@ -140,12 +151,12 @@ function streamInvocation(core: LambdaCore, options: Partial<LambdaInvokeOptions
           : await invokePromise;
 
         if (!response) {
-          write({ type: "error", error: core.error ?? toLambdaError(new Error("Remote Lambda invocation failed"), "LAMBDA_INVOKE_FAILED") });
+          write({ type: "error", error: toWireError(core.error ?? new Error("Remote Lambda invocation failed"), "LAMBDA_INVOKE_FAILED") });
         } else {
           write({ type: "result", response });
         }
       } catch (error) {
-        write({ type: "error", error: toLambdaError(error, "LAMBDA_INVOKE_FAILED") });
+        write({ type: "error", error: toWireError(error, "LAMBDA_INVOKE_FAILED") });
       } finally {
         context.releaseSharedCore();
         if (open) {
@@ -239,6 +250,21 @@ function hasOptionalMode(value: Record<string, unknown>): boolean {
 function remoteError(error: unknown, code: Parameters<typeof toLambdaError>[1]): LambdaRemoteInvokeResponse {
   return {
     ok: false,
-    error: toLambdaError(error, code),
+    error: toWireError(error, code),
   };
+}
+
+/**
+ * Normalize an error for transmission across the network boundary, dropping
+ * `cause`. `toLambdaError` keeps the original throwable on `cause` for server-side
+ * logging, but the privileged runtime must NOT serialize it to the browser:
+ * AWS SDK v3 errors are Error subclasses carrying enumerable `$metadata` /
+ * `$fault` / `$response` properties that JSON.stringify would leak (function
+ * ARN, region, request internals). SPEC 13/10.1 require that raw provider
+ * errors stay server-side. Only the normalized `{ code, message }` crosses the
+ * wire — in both the buffered JSON response and the NDJSON `error` event.
+ */
+function toWireError(error: unknown, code?: Parameters<typeof toLambdaError>[1]): LambdaError {
+  const normalized = toLambdaError(error, code);
+  return { code: normalized.code, message: normalized.message };
 }

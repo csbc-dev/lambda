@@ -38,6 +38,64 @@ describe("remote streaming transport (NDJSON)", () => {
     expect(response).toMatchObject({ text: "foobarbaz", requestId: "req-stream-transport" });
   });
 
+  it("does not let a cancelled stream's late release steal a newer request's shared-core lock", async () => {
+    // Reproduces the double-release hazard: a cancelled stream frees the shared
+    // lock from cancel(), a newer request acquires it, then the cancelled
+    // stream's start() finally runs a second release. A non-idempotent release
+    // would free the *newer* request's lock and let a third request run
+    // concurrently against the shared Core.
+    let resolveStreamInvoke: () => void = () => {};
+    const streamInvoker = vi.fn(() => new Promise<{
+      result: unknown; statusCode: number; functionError: null; executedVersion: null; requestId: string; logResult: null;
+    }>((resolve) => {
+      resolveStreamInvoke = () => resolve({
+        result: { ok: true }, statusCode: 200, functionError: null, executedVersion: null, requestId: "req-cancelled-stream", logResult: null,
+      });
+    }));
+    const core = new LambdaCore(undefined, { invoke: vi.fn(), invokeStream: streamInvoker });
+    core.setPinPolicy({ pinnedFunctionName: "chat-stream" });
+    const handler = createLambdaRemoteHandler(core);
+
+    // Request A: stream mode, acquires the shared lock; invoke stays pending.
+    const aResponse = await handler(streamRequest());
+    expect(aResponse.headers.get("content-type")).toContain("ndjson");
+
+    // The consumer cancels A's body mid-stream → handler.cancel() releases the
+    // lock (first release for A).
+    await aResponse.body!.cancel();
+
+    // Request B (buffered) now acquires the freed lock; invoke stays pending.
+    let resolveB: () => void = () => {};
+    const bInvoke = vi.fn();
+    // Swap the invoker so B's buffered call is the one we control. Re-bind via a
+    // fresh provider on the same shared core.
+    core.setProvider({ invoke: bInvoke, invokeStream: streamInvoker });
+    const bAcquired = new Promise<void>((resolve) => {
+      bInvoke.mockImplementationOnce(() => new Promise((resolveInvoke) => {
+        resolveB = () => resolveInvoke({
+          result: { ok: true }, statusCode: 200, functionError: null, executedVersion: null, requestId: "req-b", logResult: null,
+        });
+        resolve(); // signal that B has acquired the lock and reached invoke()
+      }));
+    });
+    const bPromise = handler(bufferedRequest());
+    // Wait until B has actually acquired the lock and entered invoke().
+    await bAcquired;
+
+    // Now A's pending streamInvoke settles → A's start() finally runs its second
+    // release. Idempotency must make it a no-op so B keeps the lock.
+    resolveStreamInvoke();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Request C must still be rejected with 409 because B holds the lock.
+    const cResponse = await handler(bufferedRequest());
+    expect(cResponse.status).toBe(409);
+
+    resolveB();
+    expect((await bPromise).status).toBe(200);
+  });
+
   it("surfaces a terminal error event as a rejected stream", async () => {
     const failing: ILambdaProvider = {
       invoke: vi.fn(),
@@ -98,6 +156,61 @@ describe("remote streaming transport (NDJSON)", () => {
     });
   });
 
+  it("preserves the terminal error event's code verbatim (does not collapse to LAMBDA_PROVIDER_ERROR)", async () => {
+    // A server-side policy denial reaches the browser as a terminal NDJSON error
+    // event. The provider must surface the original code (LAMBDA_POLICY_DENIED),
+    // not reclassify it — error classification is mode-independent (SPEC 13.1).
+    const deniedStream = (async () => ndjsonResponse([
+      { type: "error", error: { code: "LAMBDA_POLICY_DENIED", message: "functionName is not allowed by policy" } },
+    ])) as unknown as typeof fetch;
+    const provider = new LambdaRemoteProvider({ url: "https://example.test/lambda", fetch: deniedStream });
+
+    await expect(provider.invokeStream(
+      { functionName: "chat-stream", payload: null, mode: "stream" },
+      { onChunk: vi.fn() },
+    )).rejects.toMatchObject({
+      code: "LAMBDA_POLICY_DENIED",
+      message: "functionName is not allowed by policy",
+    });
+  });
+
+  it("stops reading the NDJSON stream once the signal is aborted", async () => {
+    const controller = new AbortController();
+    const projected: string[] = [];
+    // The stream cancels its underlying reader when aborted; record that the
+    // provider stopped pulling and never projected a chunk after abort.
+    let cancelled = false;
+    const aborted = (async () => {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(streamController) {
+          streamController.enqueue(encoder.encode(`${JSON.stringify({ type: "chunk", chunk: "a" })}\n`));
+          streamController.enqueue(encoder.encode(`${JSON.stringify({ type: "chunk", chunk: "b" })}\n`));
+          streamController.enqueue(encoder.encode(`${JSON.stringify({ type: "result", response: { result: null, statusCode: 200, functionError: null, executedVersion: null, requestId: "req-aborted", logResult: null, chunks: ["a", "b"], text: "ab", firstByteLatency: 1 } })}\n`));
+          streamController.close();
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "application/x-ndjson" } });
+    }) as unknown as typeof fetch;
+
+    const provider = new LambdaRemoteProvider({ url: "https://example.test/lambda", fetch: aborted });
+
+    // Abort before invoking: the read loop must bail with LAMBDA_ABORTED before
+    // projecting any chunk, and cancel the reader.
+    controller.abort();
+
+    await expect(provider.invokeStream(
+      { functionName: "chat-stream", payload: null, mode: "stream", signal: controller.signal },
+      { onChunk: (chunk) => projected.push(chunk.chunk) },
+    )).rejects.toMatchObject({ code: "LAMBDA_ABORTED" });
+
+    expect(projected).toEqual([]);
+    expect(cancelled).toBe(true);
+  });
+
   it("reassembles chunk events split across stream reads", async () => {
     const split = (async () => splitNdjsonResponse([
       { type: "chunk", chunk: "alpha" },
@@ -152,6 +265,16 @@ function streamRequest(): Request {
     body: JSON.stringify({
       command: "invoke",
       options: { functionName: "chat-stream", payload: { prompt: "hi" }, mode: "stream" },
+    }),
+  });
+}
+
+function bufferedRequest(): Request {
+  return new Request("https://example.test/lambda", {
+    method: "POST",
+    body: JSON.stringify({
+      command: "invoke",
+      options: { functionName: "chat-stream", payload: null, mode: "buffered" },
     }),
   });
 }

@@ -12,6 +12,7 @@ var __classPrivateFieldSet = (this && this.__classPrivateFieldSet) || function (
 var _LambdaStream_instances, _LambdaStream_parent, _LambdaStream_streaming, _LambdaStream_chunks, _LambdaStream_text, _LambdaStream_done, _LambdaStream_firstByteLatency, _LambdaStream_streamError, _LambdaStream_syncQueued, _LambdaStream_boundSync, _LambdaStream_attachToParent, _LambdaStream_detachFromParent, _LambdaStream_syncFromParent, _LambdaStream_queueSyncFromParent, _LambdaStream_setStreaming, _LambdaStream_setChunks, _LambdaStream_setText, _LambdaStream_setDone, _LambdaStream_setFirstByteLatency, _LambdaStream_setStreamError;
 import { getConfig } from "../config.js";
 import { raiseError } from "../raiseError.js";
+import { LambdaCore } from "../core/LambdaCore.js";
 const HTMLElementBase = (globalThis.HTMLElement ?? class extends EventTarget {
 });
 const parentEvents = [
@@ -52,7 +53,19 @@ export class LambdaStream extends HTMLElementBase {
 _LambdaStream_parent = new WeakMap(), _LambdaStream_streaming = new WeakMap(), _LambdaStream_chunks = new WeakMap(), _LambdaStream_text = new WeakMap(), _LambdaStream_done = new WeakMap(), _LambdaStream_firstByteLatency = new WeakMap(), _LambdaStream_streamError = new WeakMap(), _LambdaStream_syncQueued = new WeakMap(), _LambdaStream_boundSync = new WeakMap(), _LambdaStream_instances = new WeakSet(), _LambdaStream_attachToParent = function _LambdaStream_attachToParent() {
     __classPrivateFieldGet(this, _LambdaStream_instances, "m", _LambdaStream_detachFromParent).call(this);
     const tagName = getConfig().tagNames.lambdaInvoke;
-    const candidate = this.closest(tagName);
+    // The configured parent tag name is fed to closest() as a CSS selector. A
+    // misconfigured name (empty, whitespace, or otherwise selector-invalid)
+    // makes closest() throw a SyntaxError. Treat that exactly like "no valid
+    // parent" instead of letting the exception escape connectedCallback and
+    // break the page — the child enters the same safe inert LAMBDA_PARENT_REQUIRED
+    // state (SPEC 8).
+    let candidate = null;
+    try {
+        candidate = this.closest(tagName);
+    }
+    catch {
+        candidate = null;
+    }
     if (!(candidate instanceof HTMLElement) || !isLambdaInvokeHost(candidate)) {
         __classPrivateFieldGet(this, _LambdaStream_instances, "m", _LambdaStream_setStreamError).call(this, raiseError(this, "lambda-stream:error", new Error("lambda-stream requires a parent lambda-invoke"), "LAMBDA_PARENT_REQUIRED"));
         return;
@@ -142,6 +155,16 @@ function stringArraysEqual(left, right) {
     return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 function isLambdaInvokeHost(value) {
+    // Brand check: a genuine <lambda-invoke> host exposes a `core` getter backed by
+    // a real LambdaCore instance. This is far stronger than ducktyping on method/
+    // property shapes — it cannot be matched by an unrelated element that merely
+    // happens to define `invoke`/`chunks`/`text` (relevant when the parent tag name
+    // is reconfigured to something generic). The shape checks remain as a defensive
+    // fallback for hosts that proxy `core`.
+    const core = value.core;
+    if (core instanceof LambdaCore) {
+        return true;
+    }
     return typeof value.invoke === "function"
         && Array.isArray(value.chunks)
         && typeof value.text === "string";

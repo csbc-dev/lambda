@@ -328,6 +328,176 @@ describe("LambdaCore", () => {
     });
   });
 
+  it("does not let a superseded stream invocation clear a newer invocation's streaming state", async () => {
+    // Each invokeStream call returns a controllable pending promise. The bundled
+    // SDK provider RESOLVES a partial response on abort (it does not throw), so a
+    // superseded stream call reaches #invokeStream's post-await guard — that guard
+    // must not touch the newer invocation's surfaced streaming state.
+    const resolvers: Array<(response: LambdaInvokeResponse) => void> = [];
+    const provider: ILambdaProvider = {
+      invoke: vi.fn(),
+      invokeStream: vi.fn((_options, observer) => {
+        observer.onChunk({ chunk: "x", textDelta: "x", firstByteLatency: 1 });
+        return new Promise<LambdaInvokeResponse>((resolve) => {
+          resolvers.push(resolve);
+        });
+      }),
+    };
+    const core = new LambdaCore(undefined, provider);
+    core.setPinPolicy({ pinnedFunctionName: "chat-stream" });
+
+    const streamingEvents: boolean[] = [];
+    core.addEventListener("lambda-invoke:streaming-changed", (event) => {
+      streamingEvents.push((event as CustomEvent).detail as boolean);
+    });
+
+    // invoke#1 (stream) starts and is streaming.
+    const first = core.invoke({ payload: "first", mode: "stream" });
+    expect(core.streaming).toBe(true);
+
+    // invoke#2 (stream) supersedes #1; #2 is now the streaming authority. (During
+    // #2's startup #clearOutputs legitimately toggles streaming false→true, so we
+    // snapshot the event log here and assert no FURTHER flips come from #1.)
+    const second = core.invoke({ payload: "second", mode: "stream" });
+    expect(core.streaming).toBe(true);
+    const eventsAfterSecondStart = streamingEvents.length;
+
+    // #1 resolves a partial response AFTER being superseded (SDK-style, no throw).
+    resolvers[0]?.({
+      result: "partial-first",
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-superseded-first",
+      logResult: null,
+      chunks: ["x"],
+      text: "x",
+      firstByteLatency: 1,
+    });
+    await first;
+
+    // The superseded #1 must NOT have flipped #2's streaming to false, and must
+    // not have emitted ANY streaming-changed event at all.
+    expect(core.streaming).toBe(true);
+    expect(streamingEvents.length).toBe(eventsAfterSecondStart);
+
+    // #2 completes normally and owns the terminal transition.
+    resolvers[1]?.({
+      result: "final-second",
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-second-final",
+      logResult: null,
+      chunks: ["x"],
+      text: "x",
+      firstByteLatency: 1,
+    });
+    await second;
+
+    expect(core.streaming).toBe(false);
+    expect(core.done).toBe(true);
+    expect(core.requestId).toBe("req-second-final");
+  });
+
+  it("keeps a prior successful result when a later invoke is policy-denied", async () => {
+    const invoke = vi.fn(async () => ({
+      result: { value: "good" },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-good",
+      logResult: null,
+    }));
+    const provider: ILambdaProvider = { invoke };
+
+    const core = new LambdaCore(undefined, provider);
+    core.setPinPolicy({ allowedFunctionNames: ["safe-function"] });
+
+    const first = await core.invoke({ functionName: "safe-function", payload: "first" });
+    expect(first).toMatchObject({ requestId: "req-good" });
+    expect(core.result).toEqual({ value: "good" });
+
+    const errorEvents: unknown[] = [];
+    core.addEventListener("lambda-invoke:error", (event) => errorEvents.push((event as CustomEvent).detail));
+    let resultChangedCount = 0;
+    core.addEventListener("lambda-invoke:result-changed", () => resultChangedCount++);
+
+    // A policy-denied invoke must surface only the error and must not destroy the
+    // previously surfaced good result or flip `invoking` on/off (SPEC 13/14).
+    const denied = await core.invoke({ functionName: "forbidden-function", payload: "second" });
+
+    expect(denied).toBeUndefined();
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(core.error).toMatchObject({ code: "LAMBDA_POLICY_DENIED" });
+    expect(core.result).toEqual({ value: "good" });
+    expect(core.requestId).toBe("req-good");
+    expect(core.invoking).toBe(false);
+    // The good result was never cleared, so no result-changed fired on denial.
+    expect(resultChangedCount).toBe(0);
+    expect(errorEvents).toHaveLength(1);
+  });
+
+  it("does not throw a raw exception when setPinPolicy invalidates the current functionName", () => {
+    const core = new LambdaCore();
+    core.setPinPolicy({ allowedFunctionNames: ["safe-function"] });
+    core.functionName = "safe-function";
+    expect(core.functionName).toBe("safe-function");
+    expect(core.error).toBeNull();
+
+    // Re-pinning to a policy that excludes the current functionName must surface
+    // a normalized LAMBDA_POLICY_DENIED on the error face, not throw a raw error.
+    expect(() => core.setPinPolicy({ allowedFunctionNames: ["other-function"] })).not.toThrow();
+    expect(core.error).toMatchObject({ code: "LAMBDA_POLICY_DENIED" });
+  });
+
+  it("captures first-byte latency once, even when the first chunk reports null", async () => {
+    const provider: ILambdaProvider = {
+      invoke: vi.fn(),
+      invokeStream: vi.fn(async (_options, observer) => {
+        // First chunk: measured-as-not-available (explicit null) — counts as captured.
+        observer.onChunk({ chunk: "a", textDelta: "a", firstByteLatency: null });
+        // Later chunk reports a real number; it must NOT overwrite the captured null.
+        observer.onChunk({ chunk: "b", textDelta: "b", firstByteLatency: 42 });
+
+        return {
+          result: { ok: true },
+          statusCode: 200,
+          functionError: null,
+          executedVersion: null,
+          requestId: "req-fbl",
+          logResult: null,
+          chunks: ["a", "b"],
+          text: "ab",
+          firstByteLatency: null,
+        };
+      }),
+    };
+
+    const core = new LambdaCore(undefined, provider);
+    core.setPinPolicy({ pinnedFunctionName: "chat-stream" });
+
+    await core.invoke({ payload: null, mode: "stream" });
+
+    expect(core.text).toBe("ab");
+    expect(core.firstByteLatency).toBeNull();
+  });
+
+  it("does not emit mode-changed when the mode is unchanged", () => {
+    const core = new LambdaCore();
+    let modeEvents = 0;
+    core.addEventListener("lambda-invoke:mode-changed", () => modeEvents++);
+
+    core.mode = "buffered"; // same as the default — no event
+    expect(modeEvents).toBe(0);
+
+    core.mode = "stream"; // change — one event
+    expect(modeEvents).toBe(1);
+
+    core.mode = "stream"; // same again — no extra event
+    expect(modeEvents).toBe(1);
+  });
+
   it("reset aborts active work and suppresses late results", async () => {
     let signal: AbortSignal | undefined;
     let resolveInvoke: (response: LambdaInvokeResponse) => void = () => {};

@@ -315,6 +315,19 @@ At minimum, errors should distinguish:
 
 The parent owns the common invocation error surface. The child may expose a streaming-specific projection error if needed, but must not create a second incompatible error taxonomy.
 
+### 13.1 Error transport is mode-dependent, but the error code is not
+
+How a remote error reaches the browser differs by result mode, but the normalized error code is the same authoritative classification in both:
+
+- **Buffered mode** returns a single JSON body `{ ok: false, error }` with an HTTP status that mirrors the failure class (for example `504` for a shared-core timeout, `500` for other invocation failures, `401`/`409`/`400` for auth/contention/input).
+- **Stream mode** must commit an HTTP `200` and the NDJSON content type before the outcome is known (a stream header cannot be retracted once bytes flow). It therefore conveys failures **in band**, as the terminal `{"type":"error","error":...}` NDJSON event, not through the HTTP status.
+
+In both modes the `error.code` carried on the wire is the normalized package code produced by the Core/handler (`LAMBDA_INVOKE_FAILED`, `LAMBDA_POLICY_DENIED`, etc.). The browser provider preserves that code verbatim — a terminal stream error is **not** reclassified to `LAMBDA_PROVIDER_ERROR`. Consumers must read `error.code`, not the HTTP status, for error classification, so the same failure is classified identically regardless of mode. The HTTP status is a buffered-mode-only convenience and is intentionally absent from the stream contract.
+
+### 13.2 Only `{ code, message }` crosses the network boundary
+
+The normalized error shape may carry a `cause` (the original throwable) for **server-side** diagnostics, but the privileged runtime must never serialize it to the browser. The remote handler emits only `{ code, message }` over the wire — for both the buffered JSON response and the NDJSON terminal `error` event. This upholds §10.1 and the §13 requirement that raw provider errors not become part of the public contract: AWS SDK errors are `Error` subclasses carrying enumerable internal fields (`$metadata`, `$fault`, `$response`, function ARN, region, request IDs) that JSON serialization would otherwise leak. `cause` is a server-log concern, not a wire field.
+
 ## 14. Cancellation contract
 
 `abort()` does not imply that an already accepted Lambda execution will stop on the AWS side.
@@ -335,6 +348,22 @@ The package must not imply cost-saving cancellation semantics that AWS Lambda do
 - `reset()` clears the surface to its initial empty state: outputs return to `null` / empty and **no** error is set.
 
 Calling `reset()` mid-invocation is therefore a silent cancel-and-clear. A result from the cancelled invocation that arrives afterward is discarded; it never overwrites the post-reset state. This is the single decided behavior — `reset()` is not a no-op during an active invocation, and late results do not win.
+
+### 14.2 When outputs are cleared on a new `invoke()`
+
+A new `invoke()` always supersedes any in-flight invocation: the prior call is aborted and can no longer win. Output state is cleared only once the new invocation actually starts.
+
+The decided ordering is:
+
+1. abort and supersede any in-flight invocation (its late result/finally can never win)
+2. resolve security-sensitive inputs — `functionName` and `qualifier` pin policy
+3. **if and only if** input resolution succeeds: clear the surfaced outputs, enter the `invoking` state, and run the invocation
+
+A `invoke()` that is rejected at step 2 (a `LAMBDA_POLICY_DENIED`) surfaces only the policy error. It does **not** clear previously surfaced outputs (a prior successful `result`/`requestId` stays visible) and does **not** toggle `invoking`. This keeps a rejected, never-started invocation from destroying valid state, while still guaranteeing the prior in-flight call was superseded. Output clearing belongs to a started invocation, not a rejected one.
+
+### 14.3 DOM disconnection does not abort
+
+Removing `<lambda-invoke>` from the DOM does **not** abort an in-flight invocation. The Core, not the DOM lifecycle, owns invocation state; a transient detach/re-attach (common during framework re-renders) must not cancel work. Callers that want disconnection to cancel must call `abort()` (or `reset()`) explicitly. This mirrors the parent-owned accumulation model: a detached `<lambda-stream>` child stops projecting but the parent keeps accumulating (§8.2), and the same principle applies to the parent itself.
 
 ## 15. Post-invocation hook contract
 

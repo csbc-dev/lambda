@@ -9,7 +9,7 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
     if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
     return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
-var _LambdaInvoke_core;
+var _LambdaInvoke_instances, _LambdaInvoke_core, _LambdaInvoke_attachEnvRemote, _LambdaInvoke_detachRemote;
 import { LambdaCore } from "../core/LambdaCore.js";
 import { getConfig, getRemoteCoreUrl } from "../config.js";
 import { LambdaRemoteProvider } from "../remote/LambdaRemoteProvider.js";
@@ -21,6 +21,7 @@ export class LambdaInvoke extends HTMLElementBase {
     }
     constructor() {
         super();
+        _LambdaInvoke_instances.add(this);
         _LambdaInvoke_core.set(this, void 0);
         __classPrivateFieldSet(this, _LambdaInvoke_core, new LambdaCore(this), "f");
     }
@@ -32,13 +33,9 @@ export class LambdaInvoke extends HTMLElementBase {
         //
         // Precedence: an explicit `remote-url` attribute or an already-set provider
         // (e.g. setProvider() before connect) wins — env only fills the gap.
-        if (getConfig().remote.enableRemote &&
-            !this.hasAttribute("remote-url") &&
+        if (!this.hasAttribute("remote-url") &&
             !__classPrivateFieldGet(this, _LambdaInvoke_core, "f").hasProvider) {
-            const url = getRemoteCoreUrl();
-            if (url) {
-                this.attachRemote(url);
-            }
+            __classPrivateFieldGet(this, _LambdaInvoke_instances, "m", _LambdaInvoke_attachEnvRemote).call(this);
         }
     }
     attributeChangedCallback(name, _oldValue, newValue) {
@@ -63,15 +60,15 @@ export class LambdaInvoke extends HTMLElementBase {
             case "remote-url":
                 // Declarative remote attachment: a non-empty `remote-url` attaches a
                 // LambdaRemoteProvider pointing at that URL; clearing the attribute
-                // detaches it (back to no provider). This keeps the remote-first
-                // wiring in HTML — no imperative attachRemote()/setProvider() call is
-                // needed. AWS credentials never reach the browser: the URL points at
-                // a server-owned Core, mirroring <auth0-gate>'s `remote-url`.
+                // detaches it. This keeps the remote-first wiring in HTML — no
+                // imperative attachRemote()/setProvider() call is needed. AWS
+                // credentials never reach the browser: the URL points at a server-owned
+                // Core, mirroring <auth0-gate>'s `remote-url`.
                 if (newValue) {
                     this.attachRemote(newValue);
                 }
                 else {
-                    this.setProvider(null);
+                    __classPrivateFieldGet(this, _LambdaInvoke_instances, "m", _LambdaInvoke_detachRemote).call(this);
                 }
                 break;
         }
@@ -111,6 +108,14 @@ export class LambdaInvoke extends HTMLElementBase {
     get functionError() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").functionError; }
     get executedVersion() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").executedVersion; }
     get logResult() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").logResult; }
+    // Stream-projection getters. These are NOT part of the parent's public
+    // bindable contract (SPEC 7.1) — that contract lives in
+    // `wcBindable.properties` and deliberately excludes them; stream output is the
+    // child `<lambda-stream>` contract (SPEC 7.2). They exist here only as an
+    // internal read surface that the child uses to project parent-owned state
+    // (LambdaStream's #syncFromParent reads them, and isLambdaInvokeHost
+    // ducktypes on `chunks`/`text`). Bind stream output through `<lambda-stream>`,
+    // not through these getters.
     get streaming() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").streaming; }
     get chunks() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").chunks; }
     get text() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").text; }
@@ -118,6 +123,21 @@ export class LambdaInvoke extends HTMLElementBase {
     get firstByteLatency() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").firstByteLatency; }
     get streamError() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").streamError; }
     get pinPolicy() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").pinPolicy; }
+    /**
+     * Start an invocation against the attached (typically remote) Core.
+     *
+     * Resolves to the {@link LambdaInvokeResponse} on success. Resolves to
+     * `undefined` (it never rejects) when the invocation does not produce a
+     * surfaced result, in which case the failure is reflected on the bindable
+     * `error` property:
+     * - input/policy rejection (`functionName`/`qualifier` denied by pin policy) — `error.code === "LAMBDA_POLICY_DENIED"`
+     * - no provider attached or missing `functionName` — `error.code === "LAMBDA_CONFIG_ERROR"`
+     * - transport/provider/Lambda failure — `error.code === "LAMBDA_INVOKE_FAILED"`
+     * - aborted, or superseded by a newer invoke()/abort()/reset() before completing — resolves `undefined`; an aborted call sets `error.code === "LAMBDA_ABORTED"`, a superseded call leaves the newer invocation's state intact
+     *
+     * Callers must not assume a defined return value implies success-only flow;
+     * read `error`/`result` for authoritative state.
+     */
     async invoke() {
         return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").invoke();
     }
@@ -125,6 +145,11 @@ export class LambdaInvoke extends HTMLElementBase {
         __classPrivateFieldGet(this, _LambdaInvoke_core, "f").setProvider(provider);
     }
     attachRemote(url = getRemoteCoreUrl()) {
+        // An empty URL is a misconfiguration, not a silent no-op: LambdaRemoteProvider
+        // throws a normalized LAMBDA_CONFIG_ERROR for an empty url, so an explicit
+        // bad call fails fast. The env auto-attach path (#attachEnvRemote) guards
+        // with `if (url)` and never reaches here with an empty string, and
+        // getRemoteCoreUrl() now reports an empty env var as "" (= unset).
         this.setProvider(new LambdaRemoteProvider({ url }));
     }
     setPinPolicy(policy) {
@@ -140,6 +165,17 @@ export class LambdaInvoke extends HTMLElementBase {
         return __classPrivateFieldGet(this, _LambdaInvoke_core, "f");
     }
 }
-_LambdaInvoke_core = new WeakMap();
+_LambdaInvoke_core = new WeakMap(), _LambdaInvoke_instances = new WeakSet(), _LambdaInvoke_attachEnvRemote = function _LambdaInvoke_attachEnvRemote() {
+    if (!getConfig().remote.enableRemote) {
+        return;
+    }
+    const url = getRemoteCoreUrl();
+    if (url) {
+        this.attachRemote(url);
+    }
+}, _LambdaInvoke_detachRemote = function _LambdaInvoke_detachRemote() {
+    this.setProvider(null);
+    __classPrivateFieldGet(this, _LambdaInvoke_instances, "m", _LambdaInvoke_attachEnvRemote).call(this);
+};
 LambdaInvoke.wcBindable = LambdaCore.wcBindable;
 //# sourceMappingURL=LambdaInvoke.js.map

@@ -284,6 +284,99 @@ describe("AwsLambdaProvider", () => {
     expect(response.firstByteLatency).toEqual(expect.any(Number));
   });
 
+  it("normalizes an empty-string qualifier to no Qualifier reaching the SDK", async () => {
+    const send = vi.fn(async () => ({
+      Payload: new TextEncoder().encode('{"ok":true}'),
+      StatusCode: 200,
+      $metadata: { requestId: "req-empty-qualifier" },
+    }));
+    const provider = new AwsLambdaProvider({
+      sdkClient: { send },
+      // No pinned/allowlisted qualifier: the empty string would otherwise pass through.
+      policy: { pinnedFunctionName: "safe-function" },
+    });
+
+    await provider.invoke({
+      functionName: "safe-function",
+      qualifier: "",
+      payload: null,
+      mode: "buffered",
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const command = send.mock.calls[0][0] as { input: { Qualifier?: unknown } };
+    // "" must be normalized to "unspecified" (undefined), not forwarded literally.
+    expect(command.input.Qualifier).toBeUndefined();
+  });
+
+  it("attaches firstByteLatency to the first SDK stream chunk only", async () => {
+    const send = vi.fn(async () => ({
+      StatusCode: 200,
+      ExecutedVersion: "live",
+      $metadata: { requestId: "req-sdk-stream-fbl" },
+      EventStream: asyncIterable([
+        { PayloadChunk: { Payload: new TextEncoder().encode("a") } },
+        { PayloadChunk: { Payload: new TextEncoder().encode("b") } },
+        { PayloadChunk: { Payload: new TextEncoder().encode("c") } },
+      ]),
+    }));
+    const received: Array<number | null | undefined> = [];
+    const provider = new AwsLambdaProvider({
+      sdkClient: { send },
+      policy: { pinnedFunctionName: "chat-stream" },
+    });
+
+    const response = await provider.invokeStream!({
+      functionName: "ignored",
+      payload: null,
+      mode: "stream",
+    }, { onChunk: (chunk) => received.push(chunk.firstByteLatency) });
+
+    // First chunk carries the latency; the rest carry undefined (convention).
+    expect(received.length).toBe(3);
+    expect(received[0]).toEqual(expect.any(Number));
+    expect(received[1]).toBeUndefined();
+    expect(received[2]).toBeUndefined();
+    // The aggregate response still reports the measured first-byte latency.
+    expect(response.firstByteLatency).toEqual(expect.any(Number));
+  });
+
+  it("decodes UTF-8 multibyte Tail logs in the non-Node (atob) fallback path", async () => {
+    // Base64 of a UTF-8 string containing Japanese multibyte characters.
+    const original = "ログ: 完了 ✅";
+    const base64 = btoa(String.fromCharCode(...new TextEncoder().encode(original)));
+
+    const send = vi.fn(async () => ({
+      Payload: new TextEncoder().encode('{"ok":true}'),
+      StatusCode: 200,
+      $metadata: { requestId: "req-utf8-log" },
+      LogResult: base64,
+    }));
+    const provider = new AwsLambdaProvider({
+      sdkClient: { send },
+      policy: { pinnedFunctionName: "safe-function" },
+    });
+
+    // Force the non-Node fallback by hiding Buffer for the duration of the call.
+    const savedBuffer = (globalThis as { Buffer?: unknown }).Buffer;
+    Reflect.deleteProperty(globalThis as object, "Buffer");
+
+    try {
+      const response = await provider.invoke({
+        functionName: "safe-function",
+        payload: null,
+        logType: "Tail",
+        mode: "buffered",
+      });
+
+      expect(response.logResult).toBe(original);
+    } finally {
+      if (savedBuffer !== undefined) {
+        (globalThis as { Buffer?: unknown }).Buffer = savedBuffer;
+      }
+    }
+  });
+
   it("maps AWS response stream completion errors to functionError metadata", async () => {
     const send = vi.fn(async () => ({
       StatusCode: 200,

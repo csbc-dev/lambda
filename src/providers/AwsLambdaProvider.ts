@@ -20,10 +20,20 @@ export class AwsLambdaProvider implements ILambdaProvider {
   #client: LambdaSdkClientLike | null;
 
   constructor(options: AwsLambdaProviderOptions = {}) {
-    this.#client = options.sdkClient ?? (options.invoker && options.streamInvoker ? null : new LambdaClient({}));
+    // Lazily create the SDK client only when an SDK code path is actually hit.
+    // An injected sdkClient is used as-is; otherwise the client stays null until
+    // #client (the getter below) first needs it. This avoids constructing a
+    // LambdaClient — which initializes the AWS credential provider chain — when
+    // the provider is fully driven by injected invoker/streamInvoker (e.g. tests
+    // or a custom transport), including the common "invoker only" case.
+    this.#client = options.sdkClient ?? null;
     this.#invoker = options.invoker ?? ((invokeOptions) => this.#invokeWithSdk(invokeOptions));
     this.#streamInvoker = options.streamInvoker ?? null;
     this.#policy = clonePinPolicy(options.policy);
+  }
+
+  #sdkClient(): LambdaSdkClientLike {
+    return (this.#client ??= new LambdaClient({}));
   }
 
   async invoke(options: LambdaInvokeOptions): Promise<LambdaInvokeResponse> {
@@ -73,11 +83,7 @@ export class AwsLambdaProvider implements ILambdaProvider {
   }
 
   async #invokeWithSdk(options: LambdaInvokeOptions): Promise<LambdaInvokeResponse> {
-    if (!this.#client) {
-      throw toLambdaError(new Error("No Lambda client available"), "LAMBDA_CONFIG_ERROR");
-    }
-
-    const response = await this.#client.send(new InvokeCommand({
+    const response = await this.#sdkClient().send(new InvokeCommand({
       FunctionName: options.functionName,
       Payload: serializePayload(options.payload),
       Qualifier: options.qualifier ?? undefined,
@@ -105,10 +111,6 @@ export class AwsLambdaProvider implements ILambdaProvider {
   }
 
   async #invokeStreamWithSdk(options: LambdaInvokeOptions, observer: LambdaStreamObserver): Promise<LambdaInvokeResponse> {
-    if (!this.#client) {
-      throw toLambdaError(new Error("No Lambda client available"), "LAMBDA_CONFIG_ERROR");
-    }
-
     const startedAt = now();
     const chunks: string[] = [];
     let text = "";
@@ -116,7 +118,7 @@ export class AwsLambdaProvider implements ILambdaProvider {
     let functionError: string | null = null;
     let logResult: string | null = null;
 
-    const response = await this.#client.send(new InvokeWithResponseStreamCommand({
+    const response = await this.#sdkClient().send(new InvokeWithResponseStreamCommand({
       FunctionName: options.functionName,
       Payload: serializePayload(options.payload),
       Qualifier: options.qualifier ?? undefined,
@@ -141,8 +143,16 @@ export class AwsLambdaProvider implements ILambdaProvider {
 
       if (event.PayloadChunk) {
         const chunk = textDecoder.decode(event.PayloadChunk.Payload ?? new Uint8Array());
+        let chunkFirstByteLatency: number | undefined;
         if (firstByteLatency === null) {
           firstByteLatency = now() - startedAt;
+          // Attach firstByteLatency to the FIRST chunk only; subsequent chunks
+          // carry `undefined`. This matches the package convention (see
+          // LambdaStreamChunk in types.ts and the stream transport tests) and
+          // keeps the NDJSON wire from redundantly repeating the value. The Core
+          // captures it once regardless, but the per-chunk shape stays consistent
+          // across the SDK, remote, and replay paths.
+          chunkFirstByteLatency = firstByteLatency;
         }
 
         chunks.push(chunk);
@@ -150,7 +160,7 @@ export class AwsLambdaProvider implements ILambdaProvider {
         observer.onChunk({
           chunk,
           textDelta: chunk,
-          firstByteLatency,
+          firstByteLatency: chunkFirstByteLatency,
         });
       }
 
@@ -234,7 +244,12 @@ function decodeLogResult(logResult: string | null): string | null {
   }
 
   if (typeof atob !== "undefined") {
-    return atob(logResult);
+    // `atob` yields a Latin-1 "binary string" (one char per byte), which mangles
+    // UTF-8 multibyte content (e.g. Japanese) in Tail logs. Re-interpret those
+    // bytes as UTF-8 so the non-Node fallback matches the Node Buffer path above.
+    const binary = atob(logResult);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return textDecoder.decode(bytes);
   }
 
   return logResult;
