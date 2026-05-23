@@ -9,7 +9,7 @@ export class LambdaInvoke extends HTMLElementBase {
   static wcBindable = LambdaCore.wcBindable;
 
   static get observedAttributes(): string[] {
-    return ["function-name", "qualifier", "mode", "log-type", "client-context"];
+    return ["function-name", "qualifier", "mode", "log-type", "client-context", "remote-url"];
   }
 
   #core: LambdaCore;
@@ -38,6 +38,19 @@ export class LambdaInvoke extends HTMLElementBase {
       case "client-context":
         this.clientContext = newValue;
         break;
+      case "remote-url":
+        // Declarative remote attachment: a non-empty `remote-url` attaches a
+        // LambdaRemoteProvider pointing at that URL; clearing the attribute
+        // detaches it (back to no provider). This keeps the remote-first
+        // wiring in HTML — no imperative attachRemote()/setProvider() call is
+        // needed. AWS credentials never reach the browser: the URL points at
+        // a server-owned Core, mirroring <auth0-gate>'s `remote-url`.
+        if (newValue) {
+          this.attachRemote(newValue);
+        } else {
+          this.setProvider(null);
+        }
+        break;
     }
   }
 
@@ -55,6 +68,15 @@ export class LambdaInvoke extends HTMLElementBase {
 
   get logType(): "None" | "Tail" { return this.#core.logType; }
   set logType(value: "None" | "Tail") { this.#core.logType = value; }
+
+  get remoteUrl(): string { return this.getAttribute("remote-url") ?? ""; }
+  set remoteUrl(value: string) {
+    if (value) {
+      this.setAttribute("remote-url", value);
+    } else {
+      this.removeAttribute("remote-url");
+    }
+  }
 
   get mode(): LambdaMode { return this.#core.mode; }
   set mode(value: LambdaMode) {

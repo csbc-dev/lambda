@@ -5,25 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>@wcstack/state Lambda Example</title>
     <link rel="stylesheet" href="../shared/demo.css">
-    <script type="module">
-      import { bootstrapLambda, LambdaRemoteProvider } from "../../dist/index.js";
-      import { createMockLambdaProvider, formatExampleError, resolveRemoteEndpoint } from "../shared/mockLambdaProvider.js";
+    <!--
+      Remote-first, fully declarative wiring. The two scripts below only
+      register custom elements as a side effect:
+        1. @csbc-dev/lambda/auto — defines <lambda-invoke> / <lambda-stream>.
+           After npm publish this is https://esm.run/@csbc-dev/lambda/auto;
+           pre-publish we load the local ../../src/auto/auto.js, which imports
+           the workspace ../../dist build. The example server serves both
+           /src/auto/ and /dist/ so they resolve same-origin.
+        2. @wcstack/state/auto — defines <wcs-state> and applies data-wcs.
+      Lambda is loaded first so its elements are defined before @wcstack/state
+      wires the DOM. No provider objects, no global helpers, no element
+      lookups — everything else is `data-wcs` bindings (see below).
 
-      bootstrapLambda();
-      globalThis.createMockLambdaProvider = createMockLambdaProvider;
-      globalThis.createLambdaRemoteProvider = (url) => new LambdaRemoteProvider({ url, fetch: globalThis.fetch.bind(globalThis) });
-      globalThis.formatLambdaExampleError = formatExampleError;
-      globalThis.resolveLambdaRemoteEndpoint = resolveRemoteEndpoint;
-      await import("https://esm.run/@wcstack/state@1.10.0/auto");
-    </script>
+      Mirrors the ai-agent (local) and auth0 (remote) @wcstack/state examples:
+      state owns plain values + getters + command emits; the element owns the
+      async invocation. AWS credentials never reach the browser — attr.remote-url
+      points <lambda-invoke> at a server-owned Core (examples/server).
+    -->
+    <script type="module" src="../../src/auto/auto.js"></script>
+    <script type="module" src="https://esm.run/@wcstack/state@1.10.0/auto"></script>
   </head>
   <body>
     <main class="shell">
       <header class="masthead">
         <div>
           <p class="eyebrow">@wcstack/state</p>
-          <h1>Lambda invoke by paths and commands</h1>
-          <p class="summary">State paths bind to the custom element properties, and command tokens invoke `invoke`, `abort`, and `reset` without framework glue.</p>
+          <h1>Declarative remote Lambda invoke</h1>
+          <p class="summary">Inputs and command tokens are bound straight onto <code>&lt;lambda-invoke&gt;</code> with <code>data-wcs</code>. <code>attr.remote-url</code> attaches the remote Core, so there is no <code>querySelector</code>, no <code>setProvider</code>, and no framework glue.</p>
         </div>
         <span class="badge">data-wcs + wc-bindable</span>
       </header>
@@ -31,12 +40,28 @@
       <wcs-state>
         <script type="module">
           export default {
+            // Command tokens. @wcstack/state installs forwarders on
+            // <lambda-invoke>'s declared commands (invoke / abort / reset);
+            // the `command.<name>:` bindings below subscribe each forwarder
+            // to its token, so emitting a token fires the command on the
+            // element. No element reference is needed — state and element are
+            // decoupled by the token.
             $commandTokens: ["invokeLambda", "abortLambda", "resetLambda"],
+
+            // Inputs pushed onto <lambda-invoke>.
             functionName: "demo-function",
             mode: "buffered",
+            // Remote Core endpoint. Bound via `attr.remote-url`, which makes
+            // the element attach a LambdaRemoteProvider for this URL. Editing
+            // the field re-attaches declaratively — still no imperative call.
+            // Same-origin /api/lambda is served by examples/server, whose
+            // server-side Core owns the provider (and, in production, the AWS
+            // credentials).
             remoteUrl: "/api/lambda",
-            useRemote: false,
             payloadText: '{"name":"Ada","task":"wcstack-state example"}',
+
+            // Outputs mirrored back: buffered/meta from <lambda-invoke>,
+            // streaming projection from the <lambda-stream> child.
             invoking: false,
             streaming: false,
             result: null,
@@ -45,7 +70,6 @@
             duration: null,
             text: "",
             streamError: null,
-            localError: null,
 
             get parsedPayload() {
               const value = this.payloadText.trim();
@@ -60,7 +84,9 @@
               return this.result === null ? "null" : JSON.stringify(this.result, null, 2);
             },
             get errorText() {
-              if (this.localError) return this.localError;
+              // Both `error` (buffered/meta) and `streamError` (stream) are
+              // normalized { code, message } shapes from LambdaCore, so the
+              // one getter renders either symmetrically.
               const error = this.error || this.streamError;
               return error ? `${error.code}: ${error.message}` : "no error";
             },
@@ -71,39 +97,12 @@
               return this.duration === null ? "-" : `${Math.round(this.duration)}ms`;
             },
 
-            getInvokeElement() {
-              return this.$stateElement?.getRootNode()?.querySelector("#wcs-lambda") ?? null;
-            },
-
-            configureProvider() {
-              const invoke = this.getInvokeElement();
-              if (!invoke) return;
-              if (this.useRemote) {
-                invoke.setProvider(globalThis.createLambdaRemoteProvider(globalThis.resolveLambdaRemoteEndpoint(this.remoteUrl)));
-              } else {
-                invoke.setProvider(globalThis.createMockLambdaProvider());
-              }
-            },
-            invoke() {
-              if (this.invoking) return;
-              this.localError = null;
-              try {
-                this.configureProvider();
-                this.$command.invokeLambda.emit();
-              } catch (error) {
-                this.localError = globalThis.formatLambdaExampleError(error);
-              }
-            },
-            abort() {
-              this.$command.abortLambda.emit();
-            },
-            reset() {
-              this.localError = null;
-              this.$command.resetLambda.emit();
-            },
-            $connectedCallback() {
-              this.configureProvider();
-            },
+            // Command handlers emit a token and nothing else. Provider wiring
+            // is declarative (attr.remote-url), so these never configure
+            // transport or touch the element.
+            invoke() { this.$command.invokeLambda.emit(); },
+            abort() { this.$command.abortLambda.emit(); },
+            reset() { this.$command.resetLambda.emit(); },
           };
         </script>
       </wcs-state>
@@ -120,10 +119,9 @@
             </label>
             <label>Remote endpoint <input data-wcs="value: remoteUrl"></label>
           </div>
-          <label class="toggle"><input type="checkbox" data-wcs="checked: useRemote"> Use remote Core endpoint</label>
           <label>Payload <textarea data-wcs="value: payloadText"></textarea></label>
           <div class="actions">
-            <button type="button" data-wcs="onclick: invoke">Invoke</button>
+            <button type="button" data-wcs="onclick: invoke; disabled: invoking">Invoke</button>
             <button class="secondary" type="button" data-wcs="onclick: abort">Abort</button>
             <button class="secondary" type="button" data-wcs="onclick: reset">Reset</button>
           </div>
@@ -143,8 +141,31 @@
         </section>
       </section>
 
-      <lambda-invoke id="wcs-lambda" data-wcs="functionName: functionName; mode: mode; payload: parsedPayload; invoking: invoking; streaming: streaming; result: result; error: error; requestId: requestId; duration: duration; text: text; streamError: streamError; command.invoke: $command.invokeLambda; command.abort: $command.abortLambda; command.reset: $command.resetLambda">
-        <lambda-stream></lambda-stream>
+      <!--
+        Headless I/O node. Inputs and commands live on the parent
+        <lambda-invoke>; the <lambda-stream> child is a projection shell that
+        mirrors the parent's stream output, so its `streaming` / `text` /
+        `streamError` are bound from the child element directly.
+      -->
+      <lambda-invoke id="wcs-lambda" data-wcs="
+        functionName:    functionName;
+        mode:            mode;
+        payload:         parsedPayload;
+        attr.remote-url: remoteUrl;
+        invoking:        invoking;
+        result:          result;
+        error:           error;
+        requestId:       requestId;
+        duration:        duration;
+        command.invoke:  $command.invokeLambda;
+        command.abort:   $command.abortLambda;
+        command.reset:   $command.resetLambda
+      ">
+        <lambda-stream data-wcs="
+          streaming:   streaming;
+          text:        text;
+          streamError: streamError
+        "></lambda-stream>
       </lambda-invoke>
     </main>
   </body>

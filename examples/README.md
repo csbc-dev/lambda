@@ -7,9 +7,9 @@ Four runnable browser examples that match the build shape used by `@csbc-dev/aut
 | [`vanilla/`](vanilla/) | Vite + plain DOM APIs | Direct custom-element properties and events |
 | [`react/`](react/) | Vite + React + `@wc-bindable/react` | `useWcBindable` hook around `<lambda-invoke>` |
 | [`vue/`](vue/) | Vite + Vue + `@wc-bindable/vue` | `useWcBindable` composable around `<lambda-invoke>` |
-| [`wcstack-state/`](wcstack-state/) | Static HTML + CDN `<wcs-state>` | Declarative path and command bindings |
+| [`wcstack-state/`](wcstack-state/) | Static HTML + CDN `<wcs-state>` | Declarative remote-first bindings (`attr.remote-url`) |
 
-The Vite clients and example server use the local package via `file:../..`, while `wcstack-state/` stays bundler-free and reads the local `dist/` build. Every example defaults to a browser-only mock provider and can switch to remote mode through `/api/lambda`.
+The Vite clients and example server use the local package via `file:../..`, while `wcstack-state/` stays bundler-free and reads the local `dist/` build. The Vite clients (vanilla / react / vue) default to a browser-only mock provider and can switch to remote mode through `/api/lambda`. `wcstack-state/` is remote-first: it always talks to the server-owned Core at `/api/lambda`, attached declaratively via `attr.remote-url` with no imperative provider call.
 
 The example server scripts require Node 20.6+ because they use `node --env-file=...`.
 
@@ -40,7 +40,7 @@ npm install
 npm run dev
 ```
 
-For `wcstack-state/`, use either mock mode from a static server that exposes both the repository root and `/dist/`, or open it through the example server when you want same-origin remote mode and a locally served `/dist/` build:
+`wcstack-state/` is remote-first: it attaches to the server-owned Core at `/api/lambda` through `attr.remote-url`, so run it through the example server (which also serves the local `/dist/` build same-origin). Start the server above, then open:
 
 ```text
 http://localhost:3000/wcstack-state/
@@ -64,14 +64,14 @@ cd examples/vue && npm run build
 | `vanilla` | 5173 |
 | `react` | 5174 |
 | `vue` | 5175 |
-| `wcstack-state` | 3000 when served by `examples/server`, otherwise your chosen static-server port |
+| `wcstack-state` | 3000 (served by `examples/server`) |
 
 The default server `ALLOWED_ORIGINS` already lists `5173`-`5176` and `3000`. The Vite clients proxy `/api/lambda` to the shared server, so their remote endpoint can stay same-origin from browser code.
 
-## What all four clients demonstrate
+## What the clients demonstrate
 
-- Local mock mode with no AWS credentials in the browser.
-- Remote mode through a server-owned `LambdaCore` at `/api/lambda`.
+- Remote mode through a server-owned `LambdaCore` at `/api/lambda`, with no AWS credentials in the browser.
+- Local mock mode for the Vite clients (vanilla / react / vue); `wcstack-state/` is remote-first.
 - Same-origin endpoint validation before payloads are posted.
 - `invoke`, `abort`, and `reset` command behavior through framework-specific bindings.
 

@@ -90,6 +90,8 @@ export declare class LambdaInvoke extends HTMLElementBase {
     set clientContext(value: string | null);
     get logType(): "None" | "Tail";
     set logType(value: "None" | "Tail");
+    get remoteUrl(): string;
+    set remoteUrl(value: string);
     get mode(): LambdaMode;
     set mode(value: LambdaMode);
     get invoking(): boolean;

@@ -118,6 +118,61 @@ describe("lambda integration", () => {
     }
   });
 
+  it("attaches a remote provider declaratively through the remote-url attribute", async () => {
+    const invoker = vi.fn(async (options) => ({
+      result: { echoed: options.payload, functionName: options.functionName },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: options.qualifier ?? null,
+      requestId: "req-remote-attr",
+      logResult: null,
+    }));
+    const serverCore = bootstrapLambdaServer({
+      providerOptions: { invoker },
+      pinPolicy: { pinnedFunctionName: "server-owned-function" },
+    });
+    const handler = createLambdaRemoteHandler(serverCore);
+    const remoteFetch = vi.fn(async (_input, init) => handler(new Request("https://example.test/lambda", {
+      method: init?.method,
+      headers: init?.headers,
+      body: init?.body as BodyInit,
+    }))) as unknown as typeof fetch;
+    const invoke = document.createElement(integrationTagNames.lambdaInvoke) as LambdaInvoke;
+
+    vi.stubGlobal("fetch", remoteFetch);
+
+    try {
+      invoke.setAttribute("function-name", "browser-choice");
+      invoke.payload = { prompt: "via-attribute" };
+      // Setting the attribute is the whole wiring step — no attachRemote() call.
+      invoke.setAttribute("remote-url", "https://example.test/lambda");
+      expect(invoke.remoteUrl).toBe("https://example.test/lambda");
+
+      const response = await invoke.invoke();
+
+      expect(remoteFetch).toHaveBeenCalledTimes(1);
+      expect(response).toMatchObject({ statusCode: 200, requestId: "req-remote-attr" });
+      expect(invoke.result).toMatchObject({ functionName: "server-owned-function" });
+      expect(invoke.error).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("detaches the remote provider when remote-url is cleared", async () => {
+    const invoke = document.createElement(integrationTagNames.lambdaInvoke) as LambdaInvoke;
+    invoke.setAttribute("function-name", "demo-function");
+    invoke.setAttribute("remote-url", "https://example.test/lambda");
+    invoke.removeAttribute("remote-url");
+
+    expect(invoke.remoteUrl).toBe("");
+
+    const response = await invoke.invoke();
+
+    expect(response).toBeUndefined();
+    expect(invoke.error).toMatchObject({ code: "LAMBDA_CONFIG_ERROR" });
+  });
+
   it("rejects unauthenticated remote requests before invoking", async () => {
     const invoker = vi.fn(async () => ({
       result: { ok: true },

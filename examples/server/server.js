@@ -13,6 +13,11 @@ const allowedOrigins = new Set((process.env.ALLOWED_ORIGINS ?? "http://localhost
 const rootDir = fileURLToPath(new URL("..", import.meta.url));
 const staticRoots = new Map([
   ["/dist/", join(rootDir, "..", "dist")],
+  // The wcstack-state page loads @csbc-dev/lambda/auto from source pre-publish
+  // (../../src/auto/auto.js, which itself imports ../../dist). Expose it so the
+  // page can self-register the custom elements via <script src> like the CDN
+  // (@csbc-dev/lambda/auto) would after publish.
+  ["/src/auto/", join(rootDir, "..", "src", "auto")],
   ["/wcstack-state/", join(rootDir, "wcstack-state")],
   ["/shared/", join(rootDir, "shared")],
 ]);
@@ -140,6 +145,39 @@ function createMockProvider() {
         executedVersion: options.qualifier ?? "$LATEST",
         requestId: `remote-${crypto.randomUUID()}`,
         logResult: "remote mock log line 1\nremote mock log line 2",
+      };
+    },
+
+    // Stream mode. The fetch remote transport returns one JSON response, so
+    // the server-side Core invokes invokeStream to completion and the chunks
+    // are replayed by the browser's LambdaRemoteProvider. We still emit them
+    // through the observer here so the server-side Core accumulates the same
+    // chunks/text it returns, keeping the response self-consistent.
+    async invokeStream(options, observer) {
+      const words = ["Remote", " stream", " response", " for ", summarizePayload(options.payload)];
+      const chunks = [];
+      let text = "";
+      let firstByteLatency = null;
+      const startedAt = performance.now();
+
+      for (const chunk of words) {
+        await wait(120, options.signal);
+        chunks.push(chunk);
+        text += chunk;
+        firstByteLatency ??= performance.now() - startedAt;
+        observer.onChunk({ chunk, textDelta: chunk, firstByteLatency });
+      }
+
+      return {
+        result: { ok: true, mode: "remote-stream", text },
+        statusCode: 200,
+        functionError: null,
+        executedVersion: options.qualifier ?? "$LATEST",
+        requestId: `remote-stream-${crypto.randomUUID()}`,
+        logResult: null,
+        chunks,
+        text,
+        firstByteLatency,
       };
     },
   };

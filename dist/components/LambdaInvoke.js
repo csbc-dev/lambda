@@ -17,7 +17,7 @@ const HTMLElementBase = (globalThis.HTMLElement ?? class extends EventTarget {
 });
 export class LambdaInvoke extends HTMLElementBase {
     static get observedAttributes() {
-        return ["function-name", "qualifier", "mode", "log-type", "client-context"];
+        return ["function-name", "qualifier", "mode", "log-type", "client-context", "remote-url"];
     }
     constructor() {
         super();
@@ -43,6 +43,20 @@ export class LambdaInvoke extends HTMLElementBase {
             case "client-context":
                 this.clientContext = newValue;
                 break;
+            case "remote-url":
+                // Declarative remote attachment: a non-empty `remote-url` attaches a
+                // LambdaRemoteProvider pointing at that URL; clearing the attribute
+                // detaches it (back to no provider). This keeps the remote-first
+                // wiring in HTML — no imperative attachRemote()/setProvider() call is
+                // needed. AWS credentials never reach the browser: the URL points at
+                // a server-owned Core, mirroring <auth0-gate>'s `remote-url`.
+                if (newValue) {
+                    this.attachRemote(newValue);
+                }
+                else {
+                    this.setProvider(null);
+                }
+                break;
         }
     }
     get functionName() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").functionName; }
@@ -55,6 +69,15 @@ export class LambdaInvoke extends HTMLElementBase {
     set clientContext(value) { __classPrivateFieldGet(this, _LambdaInvoke_core, "f").clientContext = value; }
     get logType() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").logType; }
     set logType(value) { __classPrivateFieldGet(this, _LambdaInvoke_core, "f").logType = value; }
+    get remoteUrl() { return this.getAttribute("remote-url") ?? ""; }
+    set remoteUrl(value) {
+        if (value) {
+            this.setAttribute("remote-url", value);
+        }
+        else {
+            this.removeAttribute("remote-url");
+        }
+    }
     get mode() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").mode; }
     set mode(value) {
         __classPrivateFieldGet(this, _LambdaInvoke_core, "f").mode = value;

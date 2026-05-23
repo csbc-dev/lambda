@@ -20,6 +20,6 @@ npm run dev                # http://localhost:3000/api/lambda
 
 `.env` is optional. `server.js` already provides defaults for `PORT` and `ALLOWED_ORIGINS`, so copy `.env.example` only when you need to override them.
 
-Vite clients proxy `/api/lambda` to this server. The static `wcstack-state` page can also be opened from this server at `http://localhost:3000/wcstack-state/` when you want same-origin remote mode.
+Vite clients proxy `/api/lambda` to this server. The static `wcstack-state` page is remote-first and is served from here at `http://localhost:3000/wcstack-state/`, so it reaches `/api/lambda` same-origin.
 
 The server also exposes `/dist/` so the static `wcstack-state` page reads the current workspace build instead of a published CDN version.
