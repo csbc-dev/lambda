@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { bootstrapLambda } from "../src/bootstrapLambda.js";
-import { resetConfig } from "../src/config.js";
+import { resetConfig, setConfig } from "../src/config.js";
 import { bootstrapLambdaServer } from "../src/server/bootstrapLambdaServer.js";
 import { createLambdaRemoteHandler } from "../src/server/createLambdaRemoteHandler.js";
 import type { LambdaInvoke } from "../src/components/LambdaInvoke.js";
@@ -171,6 +171,96 @@ describe("lambda integration", () => {
 
     expect(response).toBeUndefined();
     expect(invoke.error).toMatchObject({ code: "LAMBDA_CONFIG_ERROR" });
+  });
+
+  it("auto-attaches a remote provider from env config on connect (remoteEnv)", async () => {
+    const invoker = vi.fn(async (options) => ({
+      result: { echoed: options.payload, functionName: options.functionName },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-env",
+      logResult: null,
+    }));
+    const serverCore = bootstrapLambdaServer({
+      providerOptions: { invoker },
+      pinPolicy: { pinnedFunctionName: "env-function" },
+    });
+    const handler = createLambdaRemoteHandler(serverCore);
+    const remoteFetch = vi.fn(async (input, init) => handler(new Request(String(input), {
+      method: init?.method,
+      headers: init?.headers,
+      body: init?.body as BodyInit,
+    }))) as unknown as typeof fetch;
+    const invoke = document.createElement(integrationTagNames.lambdaInvoke) as LambdaInvoke;
+
+    vi.stubGlobal("fetch", remoteFetch);
+    Reflect.set(globalThis, "LAMBDA_REMOTE_CORE_URL", "https://env.test/lambda");
+    setConfig({ remote: { enableRemote: true, remoteSettingType: "env" } });
+
+    try {
+      invoke.setAttribute("function-name", "browser-choice");
+      invoke.payload = { prompt: "env" };
+      // No remote-url attribute and no setProvider — connecting must attach
+      // the env-resolved provider on its own.
+      document.body.appendChild(invoke);
+
+      const response = await invoke.invoke();
+
+      expect(remoteFetch).toHaveBeenCalledTimes(1);
+      expect(remoteFetch.mock.calls[0][0]).toBe("https://env.test/lambda");
+      expect(response).toMatchObject({ requestId: "req-env" });
+      expect(invoke.result).toMatchObject({ functionName: "env-function" });
+      expect(invoke.error).toBeNull();
+    } finally {
+      invoke.remove();
+      setConfig({ remote: { enableRemote: false, remoteSettingType: "config", remoteCoreUrl: "" } });
+      Reflect.deleteProperty(globalThis, "LAMBDA_REMOTE_CORE_URL");
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("prefers an explicit remote-url attribute over env auto-attach", async () => {
+    const invoker = vi.fn(async (options) => ({
+      result: { echoed: options.payload },
+      statusCode: 200,
+      functionError: null,
+      executedVersion: null,
+      requestId: "req-attr-wins",
+      logResult: null,
+    }));
+    const serverCore = bootstrapLambdaServer({
+      providerOptions: { invoker },
+      pinPolicy: { pinnedFunctionName: "attr-function" },
+    });
+    const handler = createLambdaRemoteHandler(serverCore);
+    const remoteFetch = vi.fn(async (input, init) => handler(new Request(String(input), {
+      method: init?.method,
+      headers: init?.headers,
+      body: init?.body as BodyInit,
+    }))) as unknown as typeof fetch;
+    const invoke = document.createElement(integrationTagNames.lambdaInvoke) as LambdaInvoke;
+
+    vi.stubGlobal("fetch", remoteFetch);
+    Reflect.set(globalThis, "LAMBDA_REMOTE_CORE_URL", "https://env.test/lambda");
+    setConfig({ remote: { enableRemote: true, remoteSettingType: "env" } });
+
+    try {
+      invoke.setAttribute("function-name", "browser-choice");
+      invoke.setAttribute("remote-url", "https://attr.test/lambda");
+      invoke.payload = { prompt: "attr" };
+      document.body.appendChild(invoke);
+
+      await invoke.invoke();
+
+      expect(remoteFetch).toHaveBeenCalledTimes(1);
+      expect(remoteFetch.mock.calls[0][0]).toBe("https://attr.test/lambda");
+    } finally {
+      invoke.remove();
+      setConfig({ remote: { enableRemote: false, remoteSettingType: "config", remoteCoreUrl: "" } });
+      Reflect.deleteProperty(globalThis, "LAMBDA_REMOTE_CORE_URL");
+      vi.unstubAllGlobals();
+    }
   });
 
   it("rejects unauthenticated remote requests before invoking", async () => {

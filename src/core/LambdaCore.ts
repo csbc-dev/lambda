@@ -120,6 +120,8 @@ export class LambdaCore extends EventTarget {
   get streamError(): LambdaError | null { return this.#streamError; }
   get pinPolicy(): Readonly<LambdaPinPolicy> { return Object.freeze(clonePinPolicy(this.#pinPolicy)); }
 
+  get hasProvider(): boolean { return this.#provider !== null; }
+
   setProvider(provider: ILambdaProvider | null): void {
     this.#provider = provider;
   }

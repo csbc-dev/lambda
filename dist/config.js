@@ -31,7 +31,13 @@ export function resetConfig() {
 }
 export function getRemoteCoreUrl() {
     if (config.remote.remoteSettingType === "env") {
+        // Resolution order:
+        // 1. process.env.LAMBDA_REMOTE_CORE_URL — Node.js / bundler build-time replacement
+        // 2. globalThis.LAMBDA_REMOTE_CORE_URL  — browser global (set before script loads)
+        const fromProcess = globalThis.process?.env?.LAMBDA_REMOTE_CORE_URL;
         const fromGlobal = Reflect.get(globalThis, "LAMBDA_REMOTE_CORE_URL");
+        if (typeof fromProcess === "string")
+            return fromProcess;
         return typeof fromGlobal === "string" ? fromGlobal : "";
     }
     return config.remote.remoteCoreUrl;

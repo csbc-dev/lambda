@@ -94,6 +94,7 @@ export class LambdaCore extends EventTarget {
     get firstByteLatency() { return __classPrivateFieldGet(this, _LambdaCore_firstByteLatency, "f"); }
     get streamError() { return __classPrivateFieldGet(this, _LambdaCore_streamError, "f"); }
     get pinPolicy() { return Object.freeze(clonePinPolicy(__classPrivateFieldGet(this, _LambdaCore_pinPolicy, "f"))); }
+    get hasProvider() { return __classPrivateFieldGet(this, _LambdaCore_provider, "f") !== null; }
     setProvider(provider) {
         __classPrivateFieldSet(this, _LambdaCore_provider, provider, "f");
     }

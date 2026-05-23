@@ -79,6 +79,7 @@ export declare class LambdaInvoke extends HTMLElementBase {
     };
     static get observedAttributes(): string[];
     constructor();
+    connectedCallback(): void;
     attributeChangedCallback(name: string, _oldValue: string | null, newValue: string | null): void;
     get functionName(): string;
     set functionName(value: string);

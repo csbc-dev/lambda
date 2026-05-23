@@ -104,6 +104,7 @@ export declare class LambdaCore extends EventTarget {
     get firstByteLatency(): number | null;
     get streamError(): LambdaError | null;
     get pinPolicy(): Readonly<LambdaPinPolicy>;
+    get hasProvider(): boolean;
     setProvider(provider: ILambdaProvider | null): void;
     setPinPolicy(policy: LambdaPinPolicy | null): void;
     invoke(options?: Partial<LambdaInvokeOptions>): Promise<LambdaInvokeResponse | undefined>;

@@ -11,7 +11,7 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
 };
 var _LambdaInvoke_core;
 import { LambdaCore } from "../core/LambdaCore.js";
-import { getRemoteCoreUrl } from "../config.js";
+import { getConfig, getRemoteCoreUrl } from "../config.js";
 import { LambdaRemoteProvider } from "../remote/LambdaRemoteProvider.js";
 const HTMLElementBase = (globalThis.HTMLElement ?? class extends EventTarget {
 });
@@ -23,6 +23,23 @@ export class LambdaInvoke extends HTMLElementBase {
         super();
         _LambdaInvoke_core.set(this, void 0);
         __classPrivateFieldSet(this, _LambdaInvoke_core, new LambdaCore(this), "f");
+    }
+    connectedCallback() {
+        // Env-driven remote (the `@csbc-dev/lambda/auto/remoteEnv` entry sets
+        // `remote.enableRemote` with `remoteSettingType: "env"`). When enabled,
+        // auto-attach a remote provider from `getRemoteCoreUrl()` so production
+        // markup needs no `remote-url` and no imperative attachRemote() call.
+        //
+        // Precedence: an explicit `remote-url` attribute or an already-set provider
+        // (e.g. setProvider() before connect) wins — env only fills the gap.
+        if (getConfig().remote.enableRemote &&
+            !this.hasAttribute("remote-url") &&
+            !__classPrivateFieldGet(this, _LambdaInvoke_core, "f").hasProvider) {
+            const url = getRemoteCoreUrl();
+            if (url) {
+                this.attachRemote(url);
+            }
+        }
     }
     attributeChangedCallback(name, _oldValue, newValue) {
         switch (name) {

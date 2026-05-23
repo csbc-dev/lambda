@@ -1,5 +1,5 @@
 import { LambdaCore } from "../core/LambdaCore.js";
-import { getRemoteCoreUrl } from "../config.js";
+import { getConfig, getRemoteCoreUrl } from "../config.js";
 import { LambdaRemoteProvider } from "../remote/LambdaRemoteProvider.js";
 import type { ILambdaProvider, LambdaError, LambdaMode, LambdaInvokeResponse, LambdaPinPolicy } from "../types.js";
 
@@ -17,6 +17,26 @@ export class LambdaInvoke extends HTMLElementBase {
   constructor() {
     super();
     this.#core = new LambdaCore(this);
+  }
+
+  connectedCallback(): void {
+    // Env-driven remote (the `@csbc-dev/lambda/auto/remoteEnv` entry sets
+    // `remote.enableRemote` with `remoteSettingType: "env"`). When enabled,
+    // auto-attach a remote provider from `getRemoteCoreUrl()` so production
+    // markup needs no `remote-url` and no imperative attachRemote() call.
+    //
+    // Precedence: an explicit `remote-url` attribute or an already-set provider
+    // (e.g. setProvider() before connect) wins — env only fills the gap.
+    if (
+      getConfig().remote.enableRemote &&
+      !this.hasAttribute("remote-url") &&
+      !this.#core.hasProvider
+    ) {
+      const url = getRemoteCoreUrl();
+      if (url) {
+        this.attachRemote(url);
+      }
+    }
   }
 
   attributeChangedCallback(name: string, _oldValue: string | null, newValue: string | null): void {

@@ -17,6 +17,10 @@
     "./auto": {
       "types": "./src/auto/auto.d.ts",
       "default": "./src/auto/auto.min.js"
+    },
+    "./auto/remoteEnv": {
+      "types": "./src/auto/remoteEnv.d.ts",
+      "default": "./src/auto/remoteEnv.min.js"
     }
   },
   "files": [

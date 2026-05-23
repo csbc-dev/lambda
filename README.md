@@ -106,6 +106,16 @@ The browser may still set `functionName` or `qualifier` properties for deploymen
 
 The fetch-backed remote provider returns a single JSON response. In stream mode it replays any returned `chunks` into the stream observer after the server invocation completes; it is not a real-time browser streaming transport. Use a custom provider or future streaming transport when first-byte delivery to the browser matters.
 
+### Three ways to attach the remote Core (browser)
+
+| Mechanism | When | How |
+|---|---|---|
+| `remote-url` attribute | Per-element, URL known in markup | `<lambda-invoke remote-url="/api/lambda">` — a non-empty value attaches a remote provider; clearing it detaches. Declarative; works with framework `attr`/`ref` bindings. |
+| `@csbc-dev/lambda/auto/remoteEnv` | Whole page, URL from the environment | `import "@csbc-dev/lambda/auto/remoteEnv"` — registers the elements and enables env-driven remote mode. Each `<lambda-invoke>` auto-attaches on connect from `process.env.LAMBDA_REMOTE_CORE_URL` (build-time) or `globalThis.LAMBDA_REMOTE_CORE_URL` (runtime, set before the script loads). No URL in markup. |
+| `attachRemote(url)` | Imperative / dynamic | `el.attachRemote("/api/lambda")` (or `el.remoteUrl = "..."`). |
+
+An explicit `remote-url` attribute or a prior `setProvider()` takes precedence over env auto-attach — env only fills the gap. The plain `@csbc-dev/lambda/auto` entry registers the elements without enabling remote mode.
+
 ## Buffered invoke example
 
 ```ts

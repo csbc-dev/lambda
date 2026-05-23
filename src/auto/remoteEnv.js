@@ -1,0 +1,5 @@
+import { bootstrapLambda } from "../../dist/index.js";
+
+bootstrapLambda({
+  remote: { enableRemote: true, remoteSettingType: "env" },
+});
