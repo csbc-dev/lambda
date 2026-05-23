@@ -14,6 +14,7 @@ export type LambdaErrorCode =
   | "LAMBDA_PARENT_REQUIRED"
   | "LAMBDA_POLICY_DENIED"
   | "LAMBDA_PROVIDER_ERROR"
+  | "LAMBDA_FUNCTION_ERROR"
   | "LAMBDA_INVOKE_FAILED";
 
 export interface LambdaInvokeOptions {
@@ -23,6 +24,7 @@ export interface LambdaInvokeOptions {
   clientContext?: string | null;
   logType?: "None" | "Tail";
   mode?: LambdaMode;
+  signal?: AbortSignal;
 }
 
 export interface LambdaInvokeResponse {
@@ -53,6 +55,10 @@ export type LambdaStreamInvoker = (
   observer: LambdaStreamObserver,
 ) => Promise<LambdaInvokeResponse>;
 
+export interface LambdaSdkClientLike {
+  send(command: object, options?: { abortSignal?: AbortSignal }): Promise<unknown>;
+}
+
 export interface LambdaPinPolicy {
   pinnedFunctionName?: string;
   pinnedQualifier?: string | null;
@@ -65,8 +71,24 @@ export interface LambdaPinPolicy {
 export interface AwsLambdaProviderOptions {
   invoker?: LambdaInvoker;
   streamInvoker?: LambdaStreamInvoker;
+  sdkClient?: LambdaSdkClientLike;
   policy?: LambdaPinPolicy;
 }
+
+export interface LambdaRemoteProviderOptions {
+  url: string;
+  fetch?: typeof fetch;
+  headers?: HeadersInit;
+}
+
+export interface LambdaRemoteInvokeRequest {
+  command: "invoke";
+  options: Omit<LambdaInvokeOptions, "signal">;
+}
+
+export type LambdaRemoteInvokeResponse =
+  | { ok: true; response: LambdaInvokeResponse }
+  | { ok: false; error: LambdaError };
 
 export interface ILambdaProvider {
   invoke(options: LambdaInvokeOptions): Promise<LambdaInvokeResponse>;

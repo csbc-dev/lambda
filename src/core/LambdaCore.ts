@@ -74,6 +74,8 @@ export class LambdaCore extends EventTarget {
   #firstByteLatency: number | null = null;
   #streamError: LambdaError | null = null;
   #aborted = false;
+  #activeInvocationId = 0;
+  #activeController: AbortController | null = null;
 
   constructor(target?: EventTarget, provider?: ILambdaProvider | null) {
     super();
@@ -141,6 +143,11 @@ export class LambdaCore extends EventTarget {
     if (options.logType !== undefined) this.logType = options.logType;
     if (options.mode !== undefined) this.mode = options.mode;
 
+    this.#activeController?.abort();
+
+    const invocationId = ++this.#activeInvocationId;
+    const controller = new AbortController();
+    this.#activeController = controller;
     this.#aborted = false;
     this.#setInvoking(true);
     this.#clearOutputs();
@@ -163,13 +170,14 @@ export class LambdaCore extends EventTarget {
         clientContext: this.#clientContext,
         logType: this.#logType,
         mode: this.#mode,
+        signal: controller.signal,
       } satisfies LambdaInvokeOptions;
 
       const response = this.#mode === "stream" && this.#provider.invokeStream
-        ? await this.#invokeStream(this.#provider, invokeOptions)
+        ? await this.#invokeStream(this.#provider, invokeOptions, invocationId)
         : await this.#provider.invoke(invokeOptions);
 
-      if (this.#aborted) {
+      if (!this.#isCurrentInvocation(invocationId) || controller.signal.aborted) {
         return response;
       }
 
@@ -180,6 +188,13 @@ export class LambdaCore extends EventTarget {
       this.#setRequestId(response.requestId ?? null);
       this.#setLogResult(response.logResult ?? null);
       this.#setResult(response.result ?? null);
+
+      if (response.functionError) {
+        this.#setError(toLambdaError(
+          new Error(`Lambda function returned ${response.functionError}`),
+          "LAMBDA_FUNCTION_ERROR",
+        ));
+      }
 
       if (this.#mode === "stream" && !this.#provider.invokeStream) {
         this.#setStreaming(true);
@@ -192,11 +207,13 @@ export class LambdaCore extends EventTarget {
 
       return response;
     } catch (error) {
+      if (!this.#isCurrentInvocation(invocationId) || controller.signal.aborted) {
+        return undefined;
+      }
+
       const normalized = toLambdaError(
         error,
-        this.#aborted
-          ? "LAMBDA_ABORTED"
-          : this.#provider
+        this.#provider
             ? "LAMBDA_INVOKE_FAILED"
             : "LAMBDA_CONFIG_ERROR",
       );
@@ -206,16 +223,19 @@ export class LambdaCore extends EventTarget {
       }
       return undefined;
     } finally {
-      this.#setInvoking(false);
+      if (this.#isCurrentInvocation(invocationId)) {
+        this.#activeController = null;
+        this.#setInvoking(false);
+      }
     }
   }
 
-  async #invokeStream(provider: ILambdaProvider, options: LambdaInvokeOptions): Promise<LambdaInvokeResponse> {
+  async #invokeStream(provider: ILambdaProvider, options: LambdaInvokeOptions, invocationId: number): Promise<LambdaInvokeResponse> {
     this.#setStreaming(true);
 
     const response = await provider.invokeStream!(options, {
       onChunk: (chunk) => {
-        if (this.#aborted) {
+        if (!this.#isCurrentInvocation(invocationId) || options.signal?.aborted) {
           return;
         }
 
@@ -241,6 +261,9 @@ export class LambdaCore extends EventTarget {
 
   abort(): void {
     this.#aborted = true;
+    this.#activeInvocationId++;
+    this.#activeController?.abort();
+    this.#activeController = null;
     this.#setInvoking(false);
     this.#setStreaming(false);
   }
@@ -283,6 +306,10 @@ export class LambdaCore extends EventTarget {
   #setDone(value: boolean): void { this.#done = value; this.#dispatch("lambda-invoke:done-changed", value); }
   #setFirstByteLatency(value: number | null): void { this.#firstByteLatency = value; this.#dispatch("lambda-invoke:first-byte-latency-changed", value); }
   #setStreamError(value: LambdaError | null): void { this.#streamError = value; this.#dispatch("lambda-invoke:stream-error", value); }
+
+  #isCurrentInvocation(invocationId: number): boolean {
+    return invocationId === this.#activeInvocationId;
+  }
 
   #dispatch(eventName: string, detail: unknown): void {
     this.#target.dispatchEvent(new CustomEvent(eventName, { detail, bubbles: true }));

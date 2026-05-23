@@ -5,6 +5,7 @@ export { bootstrapLambdaServer } from "./server/bootstrapLambdaServer.js";
 export { LambdaInvoke } from "./components/LambdaInvoke.js";
 export { LambdaStream } from "./components/LambdaStream.js";
 export { AwsLambdaProvider } from "./providers/AwsLambdaProvider.js";
+export { LambdaRemoteProvider } from "./remote/LambdaRemoteProvider.js";
 
 export type {
   AwsLambdaProviderOptions,
@@ -23,6 +24,9 @@ export type {
   LambdaInvokeValues,
   LambdaMode,
   LambdaPinPolicy,
+  LambdaRemoteInvokeRequest,
+  LambdaRemoteInvokeResponse,
+  LambdaRemoteProviderOptions,
   LambdaStreamChunk,
   LambdaStreamInvoker,
   LambdaStreamObserver,

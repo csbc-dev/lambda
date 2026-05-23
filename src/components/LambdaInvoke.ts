@@ -1,7 +1,11 @@
 import { LambdaCore } from "../core/LambdaCore.js";
+import { getRemoteCoreUrl } from "../config.js";
+import { LambdaRemoteProvider } from "../remote/LambdaRemoteProvider.js";
 import type { ILambdaProvider, LambdaError, LambdaMode, LambdaInvokeResponse, LambdaPinPolicy } from "../types.js";
 
-export class LambdaInvoke extends HTMLElement {
+const HTMLElementBase = (globalThis.HTMLElement ?? class extends EventTarget {}) as typeof HTMLElement;
+
+export class LambdaInvoke extends HTMLElementBase {
   static wcBindable = LambdaCore.wcBindable;
 
   static get observedAttributes(): string[] {
@@ -83,6 +87,10 @@ export class LambdaInvoke extends HTMLElement {
 
   setProvider(provider: ILambdaProvider | null): void {
     this.#core.setProvider(provider);
+  }
+
+  attachRemote(url = getRemoteCoreUrl()): void {
+    this.setProvider(new LambdaRemoteProvider({ url }));
   }
 
   setPinPolicy(policy: LambdaPinPolicy | null): void {

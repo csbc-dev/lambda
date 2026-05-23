@@ -3,6 +3,8 @@ import { raiseError } from "../raiseError.js";
 import type { LambdaError } from "../types.js";
 import type { LambdaInvoke } from "./LambdaInvoke.js";
 
+const HTMLElementBase = (globalThis.HTMLElement ?? class extends EventTarget {}) as typeof HTMLElement;
+
 const parentEvents = [
   "lambda-invoke:streaming-changed",
   "lambda-invoke:chunks-changed",
@@ -12,7 +14,7 @@ const parentEvents = [
   "lambda-invoke:stream-error",
 ] as const;
 
-export class LambdaStream extends HTMLElement {
+export class LambdaStream extends HTMLElementBase {
   static wcBindable = {
     protocol: "wc-bindable",
     version: 1,
@@ -33,7 +35,8 @@ export class LambdaStream extends HTMLElement {
   #done = false;
   #firstByteLatency: number | null = null;
   #streamError: LambdaError | null = null;
-  #boundSync = () => this.#syncFromParent();
+  #syncQueued = false;
+  #boundSync = () => this.#queueSyncFromParent();
 
   connectedCallback(): void {
     this.#attachToParent();
@@ -95,33 +98,73 @@ export class LambdaStream extends HTMLElement {
     this.#setStreamError(this.#parent.streamError);
   }
 
+  #queueSyncFromParent(): void {
+    if (this.#syncQueued) {
+      return;
+    }
+
+    this.#syncQueued = true;
+    queueMicrotask(() => {
+      this.#syncQueued = false;
+      this.#syncFromParent();
+    });
+  }
+
   #setStreaming(value: boolean): void {
+    if (this.#streaming === value) {
+      return;
+    }
+
     this.#streaming = value;
     this.dispatchEvent(new CustomEvent("lambda-stream:streaming-changed", { detail: value, bubbles: true }));
   }
 
   #setChunks(value: string[]): void {
+    if (stringArraysEqual(this.#chunks, value)) {
+      return;
+    }
+
     this.#chunks = [...value];
     this.dispatchEvent(new CustomEvent("lambda-stream:chunks-changed", { detail: this.chunks, bubbles: true }));
   }
 
   #setText(value: string): void {
+    if (this.#text === value) {
+      return;
+    }
+
     this.#text = value;
     this.dispatchEvent(new CustomEvent("lambda-stream:text-changed", { detail: value, bubbles: true }));
   }
 
   #setDone(value: boolean): void {
+    if (this.#done === value) {
+      return;
+    }
+
     this.#done = value;
     this.dispatchEvent(new CustomEvent("lambda-stream:done-changed", { detail: value, bubbles: true }));
   }
 
   #setFirstByteLatency(value: number | null): void {
+    if (this.#firstByteLatency === value) {
+      return;
+    }
+
     this.#firstByteLatency = value;
     this.dispatchEvent(new CustomEvent("lambda-stream:first-byte-latency-changed", { detail: value, bubbles: true }));
   }
 
   #setStreamError(value: LambdaError | null): void {
+    if (this.#streamError === value) {
+      return;
+    }
+
     this.#streamError = value;
     this.dispatchEvent(new CustomEvent("lambda-stream:error", { detail: value, bubbles: true }));
   }
+}
+
+function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

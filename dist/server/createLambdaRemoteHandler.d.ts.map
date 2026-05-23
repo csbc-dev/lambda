@@ -1,0 +1,1 @@
+{"version":3,"file":"createLambdaRemoteHandler.d.ts","sourceRoot":"","sources":["../../src/server/createLambdaRemoteHandler.ts"],"names":[],"mappings":"AACA,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,uBAAuB,CAAC;AAGxD,MAAM,MAAM,mBAAmB,GAAG,CAAC,OAAO,EAAE,OAAO,KAAK,OAAO,CAAC,QAAQ,CAAC,CAAC;AAE1E,wBAAgB,yBAAyB,CAAC,IAAI,EAAE,UAAU,GAAG,mBAAmB,CAgC/E"}

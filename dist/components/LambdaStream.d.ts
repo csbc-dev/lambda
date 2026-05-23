@@ -1,5 +1,6 @@
 import type { LambdaError } from "../types.js";
-export declare class LambdaStream extends HTMLElement {
+declare const HTMLElementBase: typeof HTMLElement;
+export declare class LambdaStream extends HTMLElementBase {
     #private;
     static wcBindable: {
         readonly protocol: "wc-bindable";
@@ -33,4 +34,5 @@ export declare class LambdaStream extends HTMLElement {
     get firstByteLatency(): number | null;
     get streamError(): LambdaError | null;
 }
+export {};
 //# sourceMappingURL=LambdaStream.d.ts.map

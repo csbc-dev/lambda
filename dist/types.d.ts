@@ -4,7 +4,7 @@ export interface LambdaError {
     message: string;
     cause?: unknown;
 }
-export type LambdaErrorCode = "LAMBDA_ERROR" | "LAMBDA_ABORTED" | "LAMBDA_CONFIG_ERROR" | "LAMBDA_INPUT_ERROR" | "LAMBDA_PARENT_REQUIRED" | "LAMBDA_POLICY_DENIED" | "LAMBDA_PROVIDER_ERROR" | "LAMBDA_INVOKE_FAILED";
+export type LambdaErrorCode = "LAMBDA_ERROR" | "LAMBDA_ABORTED" | "LAMBDA_CONFIG_ERROR" | "LAMBDA_INPUT_ERROR" | "LAMBDA_PARENT_REQUIRED" | "LAMBDA_POLICY_DENIED" | "LAMBDA_PROVIDER_ERROR" | "LAMBDA_FUNCTION_ERROR" | "LAMBDA_INVOKE_FAILED";
 export interface LambdaInvokeOptions {
     functionName: string;
     payload: unknown;
@@ -12,6 +12,7 @@ export interface LambdaInvokeOptions {
     clientContext?: string | null;
     logType?: "None" | "Tail";
     mode?: LambdaMode;
+    signal?: AbortSignal;
 }
 export interface LambdaInvokeResponse {
     result: unknown;
@@ -34,6 +35,11 @@ export interface LambdaStreamObserver {
 }
 export type LambdaInvoker = (options: LambdaInvokeOptions) => Promise<LambdaInvokeResponse>;
 export type LambdaStreamInvoker = (options: LambdaInvokeOptions, observer: LambdaStreamObserver) => Promise<LambdaInvokeResponse>;
+export interface LambdaSdkClientLike {
+    send(command: object, options?: {
+        abortSignal?: AbortSignal;
+    }): Promise<unknown>;
+}
 export interface LambdaPinPolicy {
     pinnedFunctionName?: string;
     pinnedQualifier?: string | null;
@@ -45,8 +51,25 @@ export interface LambdaPinPolicy {
 export interface AwsLambdaProviderOptions {
     invoker?: LambdaInvoker;
     streamInvoker?: LambdaStreamInvoker;
+    sdkClient?: LambdaSdkClientLike;
     policy?: LambdaPinPolicy;
 }
+export interface LambdaRemoteProviderOptions {
+    url: string;
+    fetch?: typeof fetch;
+    headers?: HeadersInit;
+}
+export interface LambdaRemoteInvokeRequest {
+    command: "invoke";
+    options: Omit<LambdaInvokeOptions, "signal">;
+}
+export type LambdaRemoteInvokeResponse = {
+    ok: true;
+    response: LambdaInvokeResponse;
+} | {
+    ok: false;
+    error: LambdaError;
+};
 export interface ILambdaProvider {
     invoke(options: LambdaInvokeOptions): Promise<LambdaInvokeResponse>;
     invokeStream?(options: LambdaInvokeOptions, observer: LambdaStreamObserver): Promise<LambdaInvokeResponse>;

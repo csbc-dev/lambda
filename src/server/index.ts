@@ -1,6 +1,8 @@
 export { LambdaCore } from "../core/LambdaCore.js";
 export { bootstrapLambdaServer } from "./bootstrapLambdaServer.js";
+export { createLambdaRemoteHandler } from "./createLambdaRemoteHandler.js";
 export { AwsLambdaProvider } from "../providers/AwsLambdaProvider.js";
+export type { LambdaRemoteHandler } from "./createLambdaRemoteHandler.js";
 
 export type {
   AwsLambdaProviderOptions,
@@ -12,6 +14,9 @@ export type {
   LambdaInvokeResponse,
   LambdaMode,
   LambdaPinPolicy,
+  LambdaRemoteInvokeRequest,
+  LambdaRemoteInvokeResponse,
+  LambdaRemoteProviderOptions,
   LambdaStreamChunk,
   LambdaStreamInvoker,
   LambdaStreamObserver,

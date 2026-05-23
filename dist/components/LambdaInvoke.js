@@ -11,7 +11,11 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
 };
 var _LambdaInvoke_core;
 import { LambdaCore } from "../core/LambdaCore.js";
-export class LambdaInvoke extends HTMLElement {
+import { getRemoteCoreUrl } from "../config.js";
+import { LambdaRemoteProvider } from "../remote/LambdaRemoteProvider.js";
+const HTMLElementBase = (globalThis.HTMLElement ?? class extends EventTarget {
+});
+export class LambdaInvoke extends HTMLElementBase {
     static get observedAttributes() {
         return ["function-name", "qualifier", "mode", "log-type", "client-context"];
     }
@@ -54,7 +58,9 @@ export class LambdaInvoke extends HTMLElement {
     get mode() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").mode; }
     set mode(value) {
         __classPrivateFieldGet(this, _LambdaInvoke_core, "f").mode = value;
-        this.setAttribute("mode", value);
+        if (this.getAttribute("mode") !== value) {
+            this.setAttribute("mode", value);
+        }
     }
     get invoking() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").invoking; }
     get result() { return __classPrivateFieldGet(this, _LambdaInvoke_core, "f").result; }
@@ -77,6 +83,9 @@ export class LambdaInvoke extends HTMLElement {
     }
     setProvider(provider) {
         __classPrivateFieldGet(this, _LambdaInvoke_core, "f").setProvider(provider);
+    }
+    attachRemote(url = getRemoteCoreUrl()) {
+        this.setProvider(new LambdaRemoteProvider({ url }));
     }
     setPinPolicy(policy) {
         __classPrivateFieldGet(this, _LambdaInvoke_core, "f").setPinPolicy(policy);

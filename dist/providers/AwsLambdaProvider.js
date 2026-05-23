@@ -9,8 +9,8 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
     if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
     return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
-var _AwsLambdaProvider_instances, _AwsLambdaProvider_invoker, _AwsLambdaProvider_streamInvoker, _AwsLambdaProvider_policy, _AwsLambdaProvider_client, _AwsLambdaProvider_normalizeOptions, _AwsLambdaProvider_resolveFunctionName, _AwsLambdaProvider_resolveQualifier, _AwsLambdaProvider_invokeWithSdk;
-import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
+var _AwsLambdaProvider_instances, _AwsLambdaProvider_invoker, _AwsLambdaProvider_streamInvoker, _AwsLambdaProvider_policy, _AwsLambdaProvider_client, _AwsLambdaProvider_normalizeOptions, _AwsLambdaProvider_resolveFunctionName, _AwsLambdaProvider_resolveQualifier, _AwsLambdaProvider_invokeWithSdk, _AwsLambdaProvider_invokeStreamWithSdk;
+import { InvokeCommand, InvokeWithResponseStreamCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { toLambdaError } from "../raiseError.js";
 import { clonePinPolicy, resolveFunctionName, resolveQualifier } from "../pinPolicy.js";
 export class AwsLambdaProvider {
@@ -20,7 +20,7 @@ export class AwsLambdaProvider {
         _AwsLambdaProvider_streamInvoker.set(this, void 0);
         _AwsLambdaProvider_policy.set(this, void 0);
         _AwsLambdaProvider_client.set(this, void 0);
-        __classPrivateFieldSet(this, _AwsLambdaProvider_client, options.invoker ? null : new LambdaClient({}), "f");
+        __classPrivateFieldSet(this, _AwsLambdaProvider_client, options.sdkClient ?? (options.invoker && options.streamInvoker ? null : new LambdaClient({})), "f");
         __classPrivateFieldSet(this, _AwsLambdaProvider_invoker, options.invoker ?? ((invokeOptions) => __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_invokeWithSdk).call(this, invokeOptions)), "f");
         __classPrivateFieldSet(this, _AwsLambdaProvider_streamInvoker, options.streamInvoker ?? null, "f");
         __classPrivateFieldSet(this, _AwsLambdaProvider_policy, clonePinPolicy(options.policy), "f");
@@ -35,15 +35,14 @@ export class AwsLambdaProvider {
         }
     }
     async invokeStream(options, observer) {
-        if (!__classPrivateFieldGet(this, _AwsLambdaProvider_streamInvoker, "f")) {
-            throw toLambdaError(new Error("AwsLambdaProvider does not implement stream mode yet; provide streamInvoker or add a stream transport path"), "LAMBDA_CONFIG_ERROR");
-        }
         const normalizedOptions = __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_normalizeOptions).call(this, {
             ...options,
             mode: "stream",
         });
         try {
-            return await __classPrivateFieldGet(this, _AwsLambdaProvider_streamInvoker, "f").call(this, normalizedOptions, observer);
+            return __classPrivateFieldGet(this, _AwsLambdaProvider_streamInvoker, "f")
+                ? await __classPrivateFieldGet(this, _AwsLambdaProvider_streamInvoker, "f").call(this, normalizedOptions, observer)
+                : await __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_invokeStreamWithSdk).call(this, normalizedOptions, observer);
         }
         catch (error) {
             throw toLambdaError(error, "LAMBDA_PROVIDER_ERROR");
@@ -51,9 +50,6 @@ export class AwsLambdaProvider {
     }
 }
 _AwsLambdaProvider_invoker = new WeakMap(), _AwsLambdaProvider_streamInvoker = new WeakMap(), _AwsLambdaProvider_policy = new WeakMap(), _AwsLambdaProvider_client = new WeakMap(), _AwsLambdaProvider_instances = new WeakSet(), _AwsLambdaProvider_normalizeOptions = function _AwsLambdaProvider_normalizeOptions(options) {
-    if (options.mode === "stream" && !__classPrivateFieldGet(this, _AwsLambdaProvider_streamInvoker, "f")) {
-        throw toLambdaError(new Error("AwsLambdaProvider does not implement stream mode yet; add a stream transport path first"), "LAMBDA_CONFIG_ERROR");
-    }
     const functionName = __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_resolveFunctionName).call(this, options.functionName);
     const qualifier = __classPrivateFieldGet(this, _AwsLambdaProvider_instances, "m", _AwsLambdaProvider_resolveQualifier).call(this, options.qualifier ?? null);
     return {
@@ -75,7 +71,9 @@ _AwsLambdaProvider_invoker = new WeakMap(), _AwsLambdaProvider_streamInvoker = n
         Qualifier: options.qualifier ?? undefined,
         ClientContext: options.clientContext ?? undefined,
         LogType: options.logType,
-    }));
+    }), {
+        abortSignal: options.signal,
+    });
     return {
         result: parsePayload(response.Payload),
         statusCode: response.StatusCode ?? null,
@@ -83,6 +81,58 @@ _AwsLambdaProvider_invoker = new WeakMap(), _AwsLambdaProvider_streamInvoker = n
         executedVersion: response.ExecutedVersion ?? null,
         requestId: response.$metadata.requestId ?? null,
         logResult: decodeLogResult(response.LogResult ?? null),
+    };
+}, _AwsLambdaProvider_invokeStreamWithSdk = async function _AwsLambdaProvider_invokeStreamWithSdk(options, observer) {
+    if (!__classPrivateFieldGet(this, _AwsLambdaProvider_client, "f")) {
+        throw toLambdaError(new Error("No Lambda client available"), "LAMBDA_CONFIG_ERROR");
+    }
+    const startedAt = now();
+    const chunks = [];
+    let text = "";
+    let firstByteLatency = null;
+    let functionError = null;
+    let logResult = null;
+    const response = await __classPrivateFieldGet(this, _AwsLambdaProvider_client, "f").send(new InvokeWithResponseStreamCommand({
+        FunctionName: options.functionName,
+        Payload: serializePayload(options.payload),
+        Qualifier: options.qualifier ?? undefined,
+        ClientContext: options.clientContext ?? undefined,
+        LogType: options.logType,
+    }), {
+        abortSignal: options.signal,
+    });
+    for await (const event of response.EventStream ?? []) {
+        if (event.PayloadChunk) {
+            const chunk = textDecoder.decode(event.PayloadChunk.Payload ?? new Uint8Array());
+            if (firstByteLatency === null) {
+                firstByteLatency = now() - startedAt;
+            }
+            chunks.push(chunk);
+            text += chunk;
+            observer.onChunk({
+                chunk,
+                textDelta: chunk,
+                firstByteLatency,
+            });
+        }
+        if (event.InvokeComplete) {
+            functionError = event.InvokeComplete.ErrorCode ?? null;
+            logResult = decodeLogResult(event.InvokeComplete.LogResult ?? null);
+            if (!text && event.InvokeComplete.ErrorDetails) {
+                text = event.InvokeComplete.ErrorDetails;
+            }
+        }
+    }
+    return {
+        result: parseTextPayload(text),
+        statusCode: response.StatusCode ?? null,
+        functionError,
+        executedVersion: response.ExecutedVersion ?? null,
+        requestId: response.$metadata?.requestId ?? null,
+        logResult,
+        chunks,
+        text,
+        firstByteLatency,
     };
 };
 const textEncoder = new TextEncoder();
@@ -106,7 +156,12 @@ function parsePayload(payload) {
     if (!payload || payload.byteLength === 0) {
         return null;
     }
-    const text = textDecoder.decode(payload);
+    return parseTextPayload(textDecoder.decode(payload));
+}
+function parseTextPayload(text) {
+    if (!text) {
+        return null;
+    }
     try {
         return JSON.parse(text);
     }
@@ -126,5 +181,8 @@ function decodeLogResult(logResult) {
         return atob(logResult);
     }
     return logResult;
+}
+function now() {
+    return typeof performance !== "undefined" ? performance.now() : Date.now();
 }
 //# sourceMappingURL=AwsLambdaProvider.js.map

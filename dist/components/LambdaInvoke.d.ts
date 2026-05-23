@@ -1,6 +1,7 @@
 import { LambdaCore } from "../core/LambdaCore.js";
 import type { ILambdaProvider, LambdaError, LambdaMode, LambdaInvokeResponse, LambdaPinPolicy } from "../types.js";
-export declare class LambdaInvoke extends HTMLElement {
+declare const HTMLElementBase: typeof HTMLElement;
+export declare class LambdaInvoke extends HTMLElementBase {
     #private;
     static wcBindable: {
         readonly protocol: "wc-bindable";
@@ -109,9 +110,11 @@ export declare class LambdaInvoke extends HTMLElement {
     get pinPolicy(): Readonly<LambdaPinPolicy>;
     invoke(): Promise<LambdaInvokeResponse | undefined>;
     setProvider(provider: ILambdaProvider | null): void;
+    attachRemote(url?: string): void;
     setPinPolicy(policy: LambdaPinPolicy | null): void;
     abort(): void;
     reset(): void;
     get core(): LambdaCore;
 }
+export {};
 //# sourceMappingURL=LambdaInvoke.d.ts.map

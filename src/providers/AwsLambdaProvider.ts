@@ -1,4 +1,4 @@
-import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
+import { InvokeCommand, InvokeWithResponseStreamCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { toLambdaError } from "../raiseError.js";
 import { clonePinPolicy, resolveFunctionName, resolveQualifier } from "../pinPolicy.js";
 import type {
@@ -8,6 +8,7 @@ import type {
   LambdaInvokeResponse,
   LambdaInvoker,
   LambdaPinPolicy,
+  LambdaSdkClientLike,
   LambdaStreamInvoker,
   LambdaStreamObserver,
 } from "../types.js";
@@ -16,10 +17,10 @@ export class AwsLambdaProvider implements ILambdaProvider {
   #invoker: LambdaInvoker;
   #streamInvoker: LambdaStreamInvoker | null;
   #policy: LambdaPinPolicy;
-  #client: LambdaClient | null;
+  #client: LambdaSdkClientLike | null;
 
   constructor(options: AwsLambdaProviderOptions = {}) {
-    this.#client = options.invoker ? null : new LambdaClient({});
+    this.#client = options.sdkClient ?? (options.invoker && options.streamInvoker ? null : new LambdaClient({}));
     this.#invoker = options.invoker ?? ((invokeOptions) => this.#invokeWithSdk(invokeOptions));
     this.#streamInvoker = options.streamInvoker ?? null;
     this.#policy = clonePinPolicy(options.policy);
@@ -36,33 +37,21 @@ export class AwsLambdaProvider implements ILambdaProvider {
   }
 
   async invokeStream(options: LambdaInvokeOptions, observer: LambdaStreamObserver): Promise<LambdaInvokeResponse> {
-    if (!this.#streamInvoker) {
-      throw toLambdaError(
-        new Error("AwsLambdaProvider does not implement stream mode yet; provide streamInvoker or add a stream transport path"),
-        "LAMBDA_CONFIG_ERROR",
-      );
-    }
-
     const normalizedOptions = this.#normalizeOptions({
       ...options,
       mode: "stream",
     });
 
     try {
-      return await this.#streamInvoker(normalizedOptions, observer);
+      return this.#streamInvoker
+        ? await this.#streamInvoker(normalizedOptions, observer)
+        : await this.#invokeStreamWithSdk(normalizedOptions, observer);
     } catch (error) {
       throw toLambdaError(error, "LAMBDA_PROVIDER_ERROR");
     }
   }
 
   #normalizeOptions(options: LambdaInvokeOptions): LambdaInvokeOptions {
-    if (options.mode === "stream" && !this.#streamInvoker) {
-      throw toLambdaError(
-        new Error("AwsLambdaProvider does not implement stream mode yet; add a stream transport path first"),
-        "LAMBDA_CONFIG_ERROR",
-      );
-    }
-
     const functionName = this.#resolveFunctionName(options.functionName);
     const qualifier = this.#resolveQualifier(options.qualifier ?? null);
 
@@ -92,7 +81,16 @@ export class AwsLambdaProvider implements ILambdaProvider {
       Qualifier: options.qualifier ?? undefined,
       ClientContext: options.clientContext ?? undefined,
       LogType: options.logType,
-    }));
+    }), {
+      abortSignal: options.signal,
+    }) as {
+      Payload?: Uint8Array;
+      StatusCode?: number;
+      FunctionError?: string;
+      ExecutedVersion?: string;
+      LogResult?: string;
+      $metadata: { requestId?: string };
+    };
 
     return {
       result: parsePayload(response.Payload),
@@ -101,6 +99,74 @@ export class AwsLambdaProvider implements ILambdaProvider {
       executedVersion: response.ExecutedVersion ?? null,
       requestId: response.$metadata.requestId ?? null,
       logResult: decodeLogResult(response.LogResult ?? null),
+    };
+  }
+
+  async #invokeStreamWithSdk(options: LambdaInvokeOptions, observer: LambdaStreamObserver): Promise<LambdaInvokeResponse> {
+    if (!this.#client) {
+      throw toLambdaError(new Error("No Lambda client available"), "LAMBDA_CONFIG_ERROR");
+    }
+
+    const startedAt = now();
+    const chunks: string[] = [];
+    let text = "";
+    let firstByteLatency: number | null = null;
+    let functionError: string | null = null;
+    let logResult: string | null = null;
+
+    const response = await this.#client.send(new InvokeWithResponseStreamCommand({
+      FunctionName: options.functionName,
+      Payload: serializePayload(options.payload),
+      Qualifier: options.qualifier ?? undefined,
+      ClientContext: options.clientContext ?? undefined,
+      LogType: options.logType,
+    }), {
+      abortSignal: options.signal,
+    }) as {
+      StatusCode?: number;
+      ExecutedVersion?: string;
+      EventStream?: AsyncIterable<{
+        PayloadChunk?: { Payload?: Uint8Array };
+        InvokeComplete?: { ErrorCode?: string; ErrorDetails?: string; LogResult?: string };
+      }>;
+      $metadata?: { requestId?: string };
+    };
+
+    for await (const event of response.EventStream ?? []) {
+      if (event.PayloadChunk) {
+        const chunk = textDecoder.decode(event.PayloadChunk.Payload ?? new Uint8Array());
+        if (firstByteLatency === null) {
+          firstByteLatency = now() - startedAt;
+        }
+
+        chunks.push(chunk);
+        text += chunk;
+        observer.onChunk({
+          chunk,
+          textDelta: chunk,
+          firstByteLatency,
+        });
+      }
+
+      if (event.InvokeComplete) {
+        functionError = event.InvokeComplete.ErrorCode ?? null;
+        logResult = decodeLogResult(event.InvokeComplete.LogResult ?? null);
+        if (!text && event.InvokeComplete.ErrorDetails) {
+          text = event.InvokeComplete.ErrorDetails;
+        }
+      }
+    }
+
+    return {
+      result: parseTextPayload(text),
+      statusCode: response.StatusCode ?? null,
+      functionError,
+      executedVersion: response.ExecutedVersion ?? null,
+      requestId: response.$metadata?.requestId ?? null,
+      logResult,
+      chunks,
+      text,
+      firstByteLatency,
     };
   }
 }
@@ -133,7 +199,13 @@ function parsePayload(payload: Uint8Array | undefined): unknown {
     return null;
   }
 
-  const text = textDecoder.decode(payload);
+  return parseTextPayload(textDecoder.decode(payload));
+}
+
+function parseTextPayload(text: string): unknown {
+  if (!text) {
+    return null;
+  }
 
   try {
     return JSON.parse(text);
@@ -160,4 +232,8 @@ function decodeLogResult(logResult: string | null): string | null {
   }
 
   return logResult;
+}
+
+function now(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
 }

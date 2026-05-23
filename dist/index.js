@@ -5,4 +5,5 @@ export { bootstrapLambdaServer } from "./server/bootstrapLambdaServer.js";
 export { LambdaInvoke } from "./components/LambdaInvoke.js";
 export { LambdaStream } from "./components/LambdaStream.js";
 export { AwsLambdaProvider } from "./providers/AwsLambdaProvider.js";
+export { LambdaRemoteProvider } from "./remote/LambdaRemoteProvider.js";
 //# sourceMappingURL=index.js.map
